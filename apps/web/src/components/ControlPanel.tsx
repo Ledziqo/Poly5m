@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Play, Square, RotateCcw, ShieldAlert, Ban, SlidersHorizontal } from 'lucide-react';
 import { motion } from 'motion/react';
 import { postControl, postSettings, Settings } from '../api';
@@ -10,14 +10,16 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const optimisticUntilRef = useRef(0);
   const isRunning = local.bot_state === 'running';
 
   useEffect(() => {
     if (editing || saving) return;
+    if (Date.now() < optimisticUntilRef.current && settings.bot_state !== local.bot_state) return;
     setLocal(settings);
     setStakeDraft(String(settings.stake_amount));
     setBalanceDraft(String(settings.starting_balance));
-  }, [settings, editing, saving]);
+  }, [settings, editing, saving, local.bot_state]);
 
   const runAction = async (action: 'start' | 'stop' | 'reset' | 'emergency_stop') => {
     if (saving) return;
@@ -28,6 +30,7 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
       action === 'emergency_stop' ? 'emergency_stopped' :
       'stopped';
     setLocal({ ...local, bot_state: optimisticState });
+    optimisticUntilRef.current = Date.now() + 2500;
     setSaving(true);
     setPendingAction(action);
     try {
