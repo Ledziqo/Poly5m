@@ -12,6 +12,7 @@ import { formatET } from '../utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { Candle, DashboardPayload, getCandles, getDashboard, getHistory, Trade } from '../api';
+import { useBinancePrice } from '../hooks/useBinancePrice';
 
 const emptyDashboard: DashboardPayload = {
   settings: {
@@ -49,6 +50,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const prevOpenTradeRef = useRef<string | null>(null);
+  const { price: livePrice } = useBinancePrice();
 
   const fetchData = async () => {
     try {
@@ -78,7 +80,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 2500);
+    const interval = setInterval(fetchData, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -99,7 +101,7 @@ export default function Dashboard() {
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center gap-4">
-            <img src="/polyengine-logo.png" alt="PolyEngine" className="h-12 w-auto object-contain drop-shadow-[0_0_18px_rgba(34,211,238,0.25)]" />
+            <img src="/polyengine-logo-wide.png" alt="PolyEngine" className="h-16 md:h-20 w-auto object-contain drop-shadow-[0_0_18px_rgba(34,211,238,0.25)]" />
             <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-300 text-xs font-bold rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.2)]">
               BTC 5M POLYMARKET ENGINE
             </span>
@@ -137,13 +139,13 @@ export default function Dashboard() {
           </motion.div>
 
           <WinStreakBox />
-          <PredictionCard window={data.window} decision={data.decision} activeTrade={data.active_trade} />
+          <PredictionCard window={data.window ? { ...data.window, current_price: livePrice || data.window.current_price } : null} decision={data.decision} activeTrade={data.active_trade} />
         </div>
 
         <div className="lg:col-span-2 flex flex-col gap-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2">
-              <PriceChart data={candles} currentPrice={data.window?.current_price || null} priceToBeat={data.window?.price_to_beat || null} />
+              <PriceChart data={candles} currentPrice={livePrice || data.window?.current_price || null} priceToBeat={data.window?.price_to_beat || null} />
             </div>
             <div className="md:col-span-1">
               <ResolutionTimer targetTimestamp={data.window?.window_end || null} />

@@ -41,10 +41,10 @@ export function useBinancePrice() {
 
       const fetchFallbackPrice = async () => {
         try {
-          const res = await fetch('/api/price/kucoin');
+          const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
           const data = await res.json();
-          if (data?.data?.price) {
-            handleNewPrice(parseFloat(data.data.price), Date.now());
+          if (data?.price) {
+            handleNewPrice(parseFloat(data.price), Date.now());
           }
         } catch {
           // Ignore

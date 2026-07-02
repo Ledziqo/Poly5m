@@ -825,7 +825,7 @@ async def worker_loop() -> None:
         await sync_chainlink_reference()
         await sync_polymarket_hint()
         await maybe_trade()
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
 
 
 async def binance_ws_loop() -> None:
