@@ -5,20 +5,40 @@ import { postControl, postSettings, Settings } from '../api';
 
 export default function ControlPanel({ settings, onUpdate }: { settings: Settings; onUpdate: () => void }) {
   const [local, setLocal] = useState(settings);
+  const [stakeDraft, setStakeDraft] = useState(String(settings.stake_amount));
+  const [balanceDraft, setBalanceDraft] = useState(String(settings.starting_balance));
   const [saving, setSaving] = useState(false);
-  const isRunning = settings.bot_state === 'running';
+  const [editing, setEditing] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const isRunning = local.bot_state === 'running';
 
   useEffect(() => {
+    if (editing || saving) return;
     setLocal(settings);
-  }, [settings]);
+    setStakeDraft(String(settings.stake_amount));
+    setBalanceDraft(String(settings.starting_balance));
+  }, [settings, editing, saving]);
 
   const runAction = async (action: 'start' | 'stop' | 'reset' | 'emergency_stop') => {
+    if (saving) return;
+    const previous = local;
+    const optimisticState =
+      action === 'start' ? 'running' :
+      action === 'stop' ? 'stopped' :
+      action === 'emergency_stop' ? 'emergency_stopped' :
+      'stopped';
+    setLocal({ ...local, bot_state: optimisticState });
     setSaving(true);
+    setPendingAction(action);
     try {
       await postControl(action);
       onUpdate();
+    } catch (error) {
+      setLocal(previous);
+      console.error('Control action failed:', error);
     } finally {
       setSaving(false);
+      setPendingAction(null);
     }
   };
 
@@ -29,9 +49,23 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
     try {
       await postSettings(patch);
       onUpdate();
+    } catch (error) {
+      console.error('Settings save failed:', error);
     } finally {
       setSaving(false);
+      setEditing(false);
     }
+  };
+
+  const saveNumber = (field: 'stake_amount' | 'starting_balance', draft: string) => {
+    const value = Number(draft);
+    if (!Number.isFinite(value) || value <= 0) {
+      setStakeDraft(String(local.stake_amount));
+      setBalanceDraft(String(local.starting_balance));
+      setEditing(false);
+      return;
+    }
+    save({ [field]: value });
   };
 
   return (
@@ -53,7 +87,7 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
               disabled={saving}
               className="flex items-center justify-center gap-2 w-32 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-all shadow-[0_0_15px_rgba(37,99,235,0.4)] border border-blue-500/50 disabled:opacity-50"
             >
-              <Play className="w-4 h-4" /> Start Bot
+              <Play className="w-4 h-4" /> {pendingAction === 'start' ? 'Starting...' : 'Start Bot'}
             </button>
           ) : (
             <button
@@ -61,12 +95,12 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
               disabled={saving}
               className="flex items-center justify-center gap-2 w-32 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-500 transition-all shadow-[0_0_15px_rgba(219,39,119,0.4)] border border-pink-500/50 disabled:opacity-50"
             >
-              <Square className="w-4 h-4" /> Stop Bot
+              <Square className="w-4 h-4" /> {pendingAction === 'stop' ? 'Stopping...' : 'Stop Bot'}
             </button>
           )}
           <div className="text-[11px] text-purple-300 font-mono tracking-wider flex items-center justify-center gap-1.5 opacity-90 w-32 bg-purple-500/10 py-1 rounded-md border border-purple-500/20">
             <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`}></span>
-            {settings.bot_state.toUpperCase()}
+            {local.bot_state.toUpperCase()}
           </div>
         </div>
       </div>
@@ -78,8 +112,16 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
             type="number"
             min="1"
             step="1"
-            value={local.stake_amount}
-            onChange={(e) => save({ stake_amount: Number(e.target.value) })}
+            value={stakeDraft}
+            onFocus={() => setEditing(true)}
+            onChange={(e) => {
+              setEditing(true);
+              setStakeDraft(e.target.value);
+            }}
+            onBlur={() => saveNumber('stake_amount', stakeDraft)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
             className="w-full p-2 bg-[#0B0E14] border border-white/10 text-white rounded-lg text-sm focus:outline-none focus:border-purple-500 transition-colors"
           />
         </label>
@@ -90,8 +132,16 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
             type="number"
             min="10"
             step="10"
-            value={local.starting_balance}
-            onChange={(e) => save({ starting_balance: Number(e.target.value) })}
+            value={balanceDraft}
+            onFocus={() => setEditing(true)}
+            onChange={(e) => {
+              setEditing(true);
+              setBalanceDraft(e.target.value);
+            }}
+            onBlur={() => saveNumber('starting_balance', balanceDraft)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
             className="w-full p-2 bg-[#0B0E14] border border-white/10 text-white rounded-lg text-sm focus:outline-none focus:border-purple-500 transition-colors"
           />
         </label>
@@ -100,6 +150,7 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
           <span className="block text-xs font-medium text-slate-400 mb-1">Risk Mode</span>
           <select
             value={local.risk_mode}
+            disabled={saving}
             onChange={(e) => save({ risk_mode: e.target.value as Settings['risk_mode'] })}
             className="w-full p-2 bg-[#0B0E14] border border-white/10 text-white rounded-lg text-sm focus:outline-none focus:border-purple-500 transition-colors"
           >
@@ -116,7 +167,7 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
             <SlidersHorizontal className="w-3 h-3" /> Cadence
           </div>
           <div className="text-lg font-mono font-bold text-white">
-            {settings.skipped_windows}/{settings.forced_cadence_every - 1}
+            {local.skipped_windows}/{local.forced_cadence_every - 1}
           </div>
           <div className="text-[10px] text-slate-500">3rd skip forces a trade</div>
         </div>
@@ -125,7 +176,7 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
             <ShieldAlert className="w-3 h-3" /> Taker Fee
           </div>
           <div className="text-lg font-mono font-bold text-white">
-            {(settings.taker_fee_rate * 100).toFixed(2)}%
+            {(local.taker_fee_rate * 100).toFixed(2)}%
           </div>
           <div className="text-[10px] text-slate-500">included in simulator</div>
         </div>
@@ -134,13 +185,15 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
       <div className="pt-4 mt-4 border-t border-white/5 flex justify-between items-center">
         <button
           onClick={() => runAction('emergency_stop')}
-          className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors"
+          disabled={saving}
+          className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors disabled:opacity-50"
         >
           <Ban className="w-3 h-3" /> Emergency Stop
         </button>
         <button
           onClick={() => runAction('reset')}
-          className="text-xs text-slate-500 hover:text-purple-400 flex items-center gap-1 transition-colors"
+          disabled={saving}
+          className="text-xs text-slate-500 hover:text-purple-400 flex items-center gap-1 transition-colors disabled:opacity-50"
           title="Resets balance, stats, trades, and bot state"
         >
           <RotateCcw className="w-3 h-3" /> Full Reset

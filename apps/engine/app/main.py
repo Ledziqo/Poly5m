@@ -109,7 +109,7 @@ class EngineState:
     last_chainlink_sync: float = 0.0
     brain_bias: float = 0.0
     brain_direction: str = "WAIT"
-    brain_confirmations: int = 0
+    brain_signal_age: int = 0
     brain_last_window_id: str = ""
 
 
@@ -618,7 +618,7 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
     if state.brain_last_window_id != window_id:
         state.brain_bias = 0.0
         state.brain_direction = "WAIT"
-        state.brain_confirmations = 0
+        state.brain_signal_age = 0
         state.brain_last_window_id = window_id
 
     previous_direction = state.brain_direction
@@ -629,9 +629,9 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
     edge_gap = abs(edge_up - edge_down)
 
     if candidate == previous_direction:
-        state.brain_confirmations = min(8, state.brain_confirmations + 1)
+        state.brain_signal_age = min(8, state.brain_signal_age + 1)
     else:
-        state.brain_confirmations = 1
+        state.brain_signal_age = 1
 
     required_margin = 0.065
     if previous_direction in ("UP", "DOWN") and candidate != previous_direction:
@@ -639,7 +639,7 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
 
     stable_side = previous_direction
     flip_blocked = False
-    if margin >= required_margin and state.brain_confirmations >= 2:
+    if margin >= required_margin and state.brain_signal_age >= 2:
         stable_side = candidate
     elif previous_direction in ("UP", "DOWN"):
         stable_side = previous_direction
@@ -652,14 +652,14 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
     state.brain_bias = smoothed
     state.brain_direction = stable_side
 
-    confidence = int(clamp(42 + margin * 210 + edge_gap * 850 + min(abs(micro_momentum), 2.2) * 9 + state.brain_confirmations * 2, 8, 88))
+    confidence = int(clamp(42 + margin * 210 + edge_gap * 850 + min(abs(micro_momentum), 2.2) * 9 + state.brain_signal_age * 2, 8, 88))
     return {
         "side": stable_side,
         "smoothed_bias": smoothed,
         "raw_bias": raw_bias,
         "candidate": candidate,
         "previous": previous_direction,
-        "confirmations": state.brain_confirmations,
+        "signal_age": state.brain_signal_age,
         "flip_blocked": flip_blocked,
         "confidence": confidence,
     }
@@ -727,14 +727,14 @@ def compute_decision() -> dict:
 
     entry_window_open = time_left > 120
     data_reasons = [
-        f"Brain bias is {brain['smoothed_bias']:+.3f} after smoothing raw signal {brain['raw_bias']:+.3f}; current stable read is {brain['side']} with {brain['confirmations']} confirmation ticks.",
+        f"Autonomous brain bias is {brain['smoothed_bias']:+.3f} after smoothing raw signal {brain['raw_bias']:+.3f}; current stable read is {brain['side']} with {brain['signal_age']} signal-memory ticks.",
         f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
         f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee; stable side edge is {best_edge * 100:+.2f}c.",
         f"Entry window has {time_left:.0f}s left; new entries close at 2:00 remaining.",
     ]
     if brain["flip_blocked"]:
-        data_reasons.append(f"Anti-flip guard blocked a quick switch from {brain['previous']} to {brain['candidate']} because confirmation/margin is not strong enough yet.")
+        data_reasons.append(f"Autonomous anti-noise guard held {brain['previous']} instead of chasing a weak {brain['candidate']} twitch.")
 
     min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012)
     confidence = brain["confidence"]
@@ -761,7 +761,7 @@ def compute_decision() -> dict:
 
     return {
         **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
-        "reasons": data_reasons + [f"Waiting because stable-side edge is {best_edge * 100:+.2f}c and raw best edge is {raw_best_edge * 100:+.2f}c, below the risk-mode threshold or not confirmed enough."],
+        "reasons": data_reasons + [f"Waiting because stable-side edge is {best_edge * 100:+.2f}c and raw best edge is {raw_best_edge * 100:+.2f}c, below the risk-mode threshold or not strong enough yet."],
         "no_trade_reason": "No fee-adjusted edge yet.",
     }
 

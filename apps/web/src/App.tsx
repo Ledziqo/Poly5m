@@ -113,11 +113,11 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
                 </div>
                 <div className="rounded-xl border border-pink-500/30 bg-pink-500/10 p-4">
                   <div className="flex justify-between"><span className="text-pink-300 font-bold">DOWN</span><span className="font-mono text-white">30.5c</span></div>
-                  <div className="text-xs text-slate-500 mt-1">Stable side selected after confirmations</div>
+                  <div className="text-xs text-slate-500 mt-1">Stable side selected by the bot</div>
                 </div>
               </div>
               <div className="mt-4 rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 text-sm text-slate-300">
-                Brain held DOWN after 4 confirmation ticks. EMA slope is fading, VWAP distance is negative, fee-adjusted edge remains positive, and anti-flip guard blocked a weak UP twitch.
+                Autonomous brain held DOWN through a weak UP twitch. EMA slope is fading, VWAP distance is negative, and fee-adjusted edge remains positive.
               </div>
             </div>
           </section>
@@ -127,11 +127,11 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
           <div className="mb-8 max-w-3xl">
             <div className="text-sm uppercase tracking-[0.28em] text-cyan-300">How it thinks</div>
             <h2 className="mt-3 text-3xl md:text-5xl font-extrabold">Not a blinking signal. A decision system.</h2>
-            <p className="mt-4 text-slate-400 leading-7">The bot blends raw indicators with memory and confirmation. It can wait, hold a bias through noise, and explain exactly why it refuses to enter or flip sides.</p>
+            <p className="mt-4 text-slate-400 leading-7">The bot blends raw indicators with memory and autonomous signal stability. It can wait, hold a bias through noise, and explain exactly why it refuses to enter or flip sides.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-5">
             <FeatureCard title="Signal memory" text="Each window keeps a smoothed Up/Down bias so one tick cannot instantly reverse the decision." />
-            <FeatureCard title="Confirmation guard" text="The brain requires repeated confirmation before changing sides, reducing nervous flip-flopping." />
+            <FeatureCard title="Autonomous stability" text="The brain smooths noisy ticks and changes sides only when the signal is strong enough, reducing nervous flip-flopping without needing you there." />
             <FeatureCard title="Trade review loop" text="Recent win/loss behavior influences confidence so the engine becomes more cautious after weak sequences." />
           </div>
         </section>
