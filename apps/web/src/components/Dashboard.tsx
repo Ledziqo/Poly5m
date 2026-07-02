@@ -11,7 +11,7 @@ import { Activity, RefreshCw, TrendingUp, Wallet, AlertCircle } from 'lucide-rea
 import { formatET } from '../utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
-import { Candle, DashboardPayload, getCandles, getDashboard, getHistory, Trade } from '../api';
+import { Candle, DashboardPayload, getCandles, getDashboard, getHistory, LiveStreamPayload, LogEntry, Trade } from '../api';
 import { useBinancePrice } from '../hooks/useBinancePrice';
 
 const emptyDashboard: DashboardPayload = {
@@ -47,6 +47,8 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardPayload>(emptyDashboard);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [history, setHistory] = useState<Trade[]>([]);
+  const [streamLogs, setStreamLogs] = useState<LogEntry[]>([]);
+  const [streamConnected, setStreamConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const prevOpenTradeRef = useRef<string | null>(null);
@@ -79,9 +81,52 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    const stream = new EventSource('/api/stream');
+
+    stream.onopen = () => {
+      setStreamConnected(true);
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    };
+
+    stream.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as LiveStreamPayload;
+        const status = payload.status;
+        setData(status);
+        setCandles(Array.isArray(payload.candles) ? payload.candles : []);
+        setHistory(Array.isArray(payload.history) ? payload.history : []);
+        setStreamLogs(Array.isArray(payload.logs) ? payload.logs : []);
+
+        if (status.active_trade && status.active_trade.id !== prevOpenTradeRef.current) {
+          toast.success(`Bot entered ${status.active_trade.direction}`, {
+            description: `${(status.active_trade.entry_price * 100).toFixed(1)}c | ${status.active_trade.reason}`,
+          });
+        }
+        prevOpenTradeRef.current = status.active_trade?.id || null;
+        setLastUpdated(new Date());
+        setLoading(false);
+      } catch (error) {
+        console.error('Error parsing live stream:', error);
+      }
+    };
+
+    stream.onerror = () => {
+      setStreamConnected(false);
+      if (!fallbackInterval) {
+        fetchData();
+        fallbackInterval = setInterval(fetchData, 1000);
+      }
+    };
+
     fetchData();
-    const interval = setInterval(fetchData, 1000);
-    return () => clearInterval(interval);
+    return () => {
+      stream.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
+    };
   }, []);
 
   const activeTrades = useMemo(() => history.filter((h) => h.status === 'OPEN'), [history]);
@@ -110,7 +155,7 @@ export default function Dashboard() {
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="flex items-center gap-4">
           <div className="text-xs text-slate-400 flex items-center gap-1">
-            <RefreshCw className="w-3 h-3" /> Updated: {formatET(lastUpdated.getTime())}
+            <RefreshCw className="w-3 h-3" /> {streamConnected ? 'Live stream' : 'Polling backup'}: {formatET(lastUpdated.getTime())}
           </div>
           <div className={`h-2 w-2 rounded-full animate-pulse ${data.settings.bot_state === 'running' ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]' : 'bg-slate-600'}`} />
         </motion.div>
@@ -188,7 +233,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <SystemLogs />
+          <SystemLogs streamLogs={streamLogs} />
         </div>
       </main>
     </div>

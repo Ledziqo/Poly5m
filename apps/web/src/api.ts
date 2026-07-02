@@ -103,6 +103,14 @@ export interface LogEntry {
   message: string;
 }
 
+export interface LiveStreamPayload {
+  status: DashboardPayload;
+  candles: Candle[];
+  history: Trade[];
+  logs: LogEntry[];
+  server_time: number;
+}
+
 export interface DashboardPayload {
   settings: Settings;
   window: BtcWindow | null;

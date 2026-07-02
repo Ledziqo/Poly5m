@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { Terminal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import type { LogEntry } from '../api';
 
 interface Log {
   id: number;
@@ -10,11 +11,19 @@ interface Log {
   message: string;
 }
 
-export default function SystemLogs() {
+export default function SystemLogs({ streamLogs }: { streamLogs?: LogEntry[] }) {
   const [logs, setLogs] = useState<Log[]>([]);
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (streamLogs) {
+      setLogs([...streamLogs].reverse());
+    }
+  }, [streamLogs]);
+
+  useEffect(() => {
+    if (streamLogs) return;
+
     const fetchLogs = async () => {
       try {
         const res = await axios.get('/api/logs');
@@ -31,7 +40,7 @@ export default function SystemLogs() {
     fetchLogs();
     const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [streamLogs]);
 
   useEffect(() => {
     if (logsContainerRef.current) {

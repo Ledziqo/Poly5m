@@ -13,6 +13,7 @@ import httpx
 import websockets
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 
@@ -752,6 +753,16 @@ def window_payload() -> dict:
     }
 
 
+def dashboard_payload() -> dict:
+    return {
+        "settings": state.settings.__dict__,
+        "window": window_payload(),
+        "decision": compute_decision(),
+        "active_trade": state.active_trade.__dict__ if state.active_trade else None,
+        "analytics": analytics(),
+    }
+
+
 async def maybe_trade() -> None:
     if state.settings.bot_state != "running":
         return
@@ -860,13 +871,32 @@ async def health():
 
 @app.get("/api/status")
 async def status():
-    return {
-        "settings": state.settings.__dict__,
-        "window": window_payload(),
-        "decision": compute_decision(),
-        "active_trade": state.active_trade.__dict__ if state.active_trade else None,
-        "analytics": analytics(),
-    }
+    return dashboard_payload()
+
+
+@app.get("/api/stream")
+async def stream():
+    async def events():
+        while True:
+            payload = {
+                "status": dashboard_payload(),
+                "candles": state.candles[-180:],
+                "history": [t.__dict__ for t in reversed(state.history[-100:])],
+                "logs": list(reversed(state.logs[-100:])),
+                "server_time": now_ms(),
+            }
+            yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/candles")
