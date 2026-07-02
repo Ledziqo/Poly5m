@@ -104,6 +104,9 @@ class EngineState:
     condition_id: str = ""
     best_depth_up: float = 0.0
     best_depth_down: float = 0.0
+    last_binance_rest_sync: float = 0.0
+    last_polymarket_sync: float = 0.0
+    last_chainlink_sync: float = 0.0
 
 
 state = EngineState()
@@ -832,11 +835,18 @@ async def maybe_trade() -> None:
 async def worker_loop() -> None:
     log("INFO", "Poly5m engine online. Waiting for bot start.")
     while True:
-        await sync_binance()
-        await sync_chainlink_reference()
-        await sync_polymarket_hint()
+        current = time.time()
+        if current - state.last_binance_rest_sync >= 2.0:
+            state.last_binance_rest_sync = current
+            await sync_binance()
+        if current - state.last_chainlink_sync >= 1.0:
+            state.last_chainlink_sync = current
+            await sync_chainlink_reference()
+        if current - state.last_polymarket_sync >= 1.0:
+            state.last_polymarket_sync = current
+            await sync_polymarket_hint()
         await maybe_trade()
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.2)
 
 
 async def binance_ws_loop() -> None:
@@ -886,7 +896,7 @@ async def stream():
                 "server_time": now_ms(),
             }
             yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.1)
 
     return StreamingResponse(
         events(),

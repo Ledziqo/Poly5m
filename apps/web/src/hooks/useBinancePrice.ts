@@ -4,7 +4,7 @@ export function useBinancePrice() {
   const [price, setPrice] = useState<number | null>(null);
   const [history, setHistory] = useState<{ time: number, price: number }[]>([]);
 
-  // We use a ref to throttle React state updates just slightly (e.g., max 10fps) 
+  // We use a ref to throttle React state updates just slightly (roughly one frame)
   // so the ultra-fast WebSockets don't freeze the UI.
   const lastUpdateRef = useRef<number>(0);
   const latestPriceRef = useRef<number | null>(null);
@@ -20,17 +20,17 @@ export function useBinancePrice() {
       if (!isComponentMounted) return;
       hasReceivedData = true; // We got data from a websocket
 
-      // Throttle state updates to ~30fps max (every 33ms) so React doesn't choke on 100+ updates/sec
+      // Throttle state updates to ~60fps max so React stays smooth while the chart feels alive.
       const now = Date.now();
       latestPriceRef.current = newPrice;
 
-      if (now - lastUpdateRef.current > 33) {
+      if (now - lastUpdateRef.current > 16) {
         lastUpdateRef.current = now;
         setPrice(newPrice);
         setHistory(prev => {
           const newHistory = [...prev, { time: timeMs, price: newPrice }];
-          // Keep only the last 150 points for performance
-          return newHistory.slice(-150);
+          // Keep a longer tick trail while staying light enough for the browser.
+          return newHistory.slice(-300);
         });
       }
     };
@@ -52,7 +52,7 @@ export function useBinancePrice() {
       };
 
       fetchFallbackPrice();
-      fallbackInterval = setInterval(fetchFallbackPrice, 1000);
+      fallbackInterval = setInterval(fetchFallbackPrice, 500);
     };
 
     // --- STREAM 1: Binance Global (Fastest, but blocked in US) ---
@@ -132,13 +132,13 @@ export function useBinancePrice() {
     connectBinanceUS();
     connectKuCoinMatch();
 
-    // Start a 2.5s timeout. If no data has arrived from ANY websocket, start the REST fallback
+    // Start a short timeout. If no data has arrived from ANY websocket, start the REST fallback.
     const safetyTimeout = setTimeout(() => {
       if (!hasReceivedData) {
         console.warn('[Price] All WebSockets stalled, using REST fallback');
         startFallback();
       }
-    }, 2500);
+    }, 1000);
 
     return () => {
       isComponentMounted = false;

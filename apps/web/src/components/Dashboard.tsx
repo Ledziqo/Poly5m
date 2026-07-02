@@ -118,7 +118,7 @@ export default function Dashboard() {
       setStreamConnected(false);
       if (!fallbackInterval) {
         fetchData();
-        fallbackInterval = setInterval(fetchData, 1000);
+        fallbackInterval = setInterval(fetchData, 500);
       }
     };
 
