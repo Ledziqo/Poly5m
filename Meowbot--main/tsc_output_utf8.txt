@@ -1,5 +1,0 @@
-﻿server.ts(2,8): error TS1259: Module '"C:/Users/mudim/Downloads/meowbota/node_modules/@types/express/index"' can only be default-imported using the 'esModuleInterop' flag
-server.ts(6,8): error TS1259: Module '"C:/Users/mudim/Downloads/meowbota/node_modules/rss-parser/index"' can only be default-imported using the 'esModuleInterop' flag
-server.ts(9,8): error TS1192: Module '"C:/Users/mudim/Downloads/meowbota/node_modules/dotenv/lib/main"' has no default export.
-server.ts(10,8): error TS1259: Module '"path"' can only be default-imported using the 'esModuleInterop' flag
-server.ts(15,34): error TS1343: The 'import.meta' meta-property is only allowed when the '--module' option is 'es2020', 'es2022', 'esnext', 'system', 'node16', 'node18', or 'nodenext'.
