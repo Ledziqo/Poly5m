@@ -33,6 +33,28 @@ def current_window_bounds(ts: int | None = None) -> tuple[int, int]:
     return start, start + five
 
 
+def active_window_bounds() -> tuple[int, int]:
+    fallback_start, fallback_end = current_window_bounds()
+    if state.pm_window_end and state.pm_window_end > now_ms() - 5_000:
+        return state.pm_window_start or state.pm_window_end - 5 * 60 * 1000, state.pm_window_end
+    return fallback_start, fallback_end
+
+
+def clear_stale_polymarket_window() -> None:
+    if state.pm_window_end and now_ms() > state.pm_window_end + 5_000:
+        old_slug = state.pm_event_slug
+        state.pm_window_start = 0
+        state.pm_window_end = 0
+        state.pm_event_slug = ""
+        state.up_token_id = ""
+        state.down_token_id = ""
+        state.condition_id = ""
+        state.best_depth_up = 0
+        state.best_depth_down = 0
+        if old_slug:
+            log("INFO", f"Rolled past expired Polymarket window {old_slug}; waiting for the next BTC 5m market.")
+
+
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
@@ -666,10 +688,8 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
 
 
 def compute_decision() -> dict:
-    start, end = current_window_bounds()
-    if state.pm_window_end:
-        end = state.pm_window_end
-        start = state.pm_window_start or end - 5 * 60 * 1000
+    clear_stale_polymarket_window()
+    start, end = active_window_bounds()
     time_left = max(0, (end - now_ms()) / 1000)
     elapsed = 300 - time_left
     price = state.current_price
@@ -821,10 +841,8 @@ def analytics() -> dict:
 
 
 def window_payload() -> dict:
-    start, end = current_window_bounds()
-    if state.pm_window_end:
-        end = state.pm_window_end
-        start = state.pm_window_start or end - 5 * 60 * 1000
+    clear_stale_polymarket_window()
+    start, end = active_window_bounds()
     return {
         "id": str(start),
         "title": "BTC Up or Down - 5m",
@@ -860,17 +878,13 @@ def dashboard_payload() -> dict:
     }
 
 
-async def maybe_trade() -> None:
-    if state.settings.bot_state != "running":
+def settle_active_trade(reason: str = "window rollover") -> None:
+    if not state.active_trade:
         return
-    decision = compute_decision()
-    start, end = current_window_bounds()
-    if state.pm_window_end:
-        end = state.pm_window_end
-        start = state.pm_window_start or end - 5 * 60 * 1000
-    window_id = str(start)
-
-    if state.processed_window_id and state.processed_window_id != window_id and state.active_trade:
+    if state.active_trade.status != "OPEN":
+        state.active_trade = None
+        return
+    if state.active_trade.window_id != str(active_window_bounds()[0]) or now_ms() >= int(state.active_trade.window_id) + 5 * 60 * 1000:
         won = (state.active_trade.direction == "UP" and state.current_price > state.active_trade.price_to_beat) or (state.active_trade.direction == "DOWN" and state.current_price < state.active_trade.price_to_beat)
         state.active_trade.status = "RESOLVED"
         state.active_trade.actual_outcome = "WIN" if won else "LOSS"
@@ -880,8 +894,18 @@ async def maybe_trade() -> None:
         state.settings.balance += payout
         persist_trade(state.active_trade)
         save_setting("balance", state.settings.balance)
-        log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f}.")
+        log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f} ({reason}).")
         state.active_trade = None
+
+
+async def maybe_trade() -> None:
+    clear_stale_polymarket_window()
+    settle_active_trade()
+    if state.settings.bot_state != "running":
+        return
+    decision = compute_decision()
+    start, end = active_window_bounds()
+    window_id = str(start)
 
     if state.processed_window_id == window_id or state.active_trade:
         return
@@ -918,8 +942,7 @@ async def maybe_trade() -> None:
         save_setting("skipped_windows", state.settings.skipped_windows)
         log("TRADE", f"Entered {direction} at {ask * 100:.1f}c with ${stake:.2f}. {trade.reason}")
     else:
-        start_time, end_time = current_window_bounds()
-        if (end_time - now_ms()) <= 120_000:
+        if (end - now_ms()) <= 120_000:
             state.processed_window_id = window_id
             state.settings.skipped_windows += 1
             save_setting("skipped_windows", state.settings.skipped_windows)
