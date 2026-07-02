@@ -1,0 +1,26 @@
+services:
+  engine:
+    build:
+      context: ./apps/engine
+    restart: unless-stopped
+    environment:
+      POLY5M_DB: /data/poly5m.db
+      REFERENCE_MODE: ${REFERENCE_MODE:-binance}
+      CHAINLINK_BTC_USD_URL: ${CHAINLINK_BTC_USD_URL:-}
+      CHAINLINK_API_KEY: ${CHAINLINK_API_KEY:-}
+    volumes:
+      - poly5m_data:/data
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ./apps/web
+    restart: unless-stopped
+    depends_on:
+      - engine
+    ports:
+      - "3000:3000"
+
+volumes:
+  poly5m_data:

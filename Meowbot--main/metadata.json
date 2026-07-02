@@ -1,0 +1,5 @@
+{
+  "name": "MeowBot",
+  "description": "A real-time Bitcoin price direction predictor for crypto trading, featuring technical analysis, sentiment analysis via Gemini, and paper trading capabilities.",
+  "requestFramePermissions": []
+}
