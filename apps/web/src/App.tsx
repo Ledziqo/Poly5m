@@ -45,7 +45,7 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_8%,rgba(34,211,238,0.18),transparent_26%),radial-gradient(circle_at_72%_18%,rgba(168,85,247,0.20),transparent_32%),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:auto,auto,72px_72px,72px_72px]" />
       <div className="relative max-w-7xl mx-auto px-6 py-8">
         <header className="flex items-center justify-between">
-          <img src="/polyengine-logo-wide.png" alt="PolyEngine" className="h-20 md:h-24 w-auto object-contain drop-shadow-[0_0_28px_rgba(34,211,238,0.28)]" />
+          <img src="/polyengine-signal-dial.png" alt="PolyEngine" className="h-24 md:h-28 w-auto object-contain drop-shadow-[0_0_28px_rgba(34,211,238,0.24)]" />
           <div className="flex items-center gap-3">
             <button onClick={() => onNav('/login')} className="rounded-full border border-white/10 px-5 py-2 text-sm text-slate-200 hover:border-cyan-400/40 transition">Login</button>
             <button onClick={() => onNav('/request-access')} className="rounded-full bg-cyan-300 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-200 transition">Request access</button>
@@ -161,7 +161,7 @@ function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[#0B0E14] bg-[radial-gradient(circle_at_50%_10%,rgba(34,211,238,0.12),transparent_30%)] flex items-center justify-center p-6">
       <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#131722]/80 backdrop-blur-xl p-8 shadow-2xl">
-        <img src="/polyengine-logo-wide.png" alt="PolyEngine" className="h-28 w-auto object-contain mb-10" />
+        <img src="/polyengine-signal-dial.png" alt="PolyEngine" className="h-32 md:h-36 w-auto max-w-full object-contain mb-10" />
         {children}
       </div>
     </div>

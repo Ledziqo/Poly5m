@@ -146,7 +146,7 @@ export default function Dashboard() {
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center gap-4">
-            <img src="/polyengine-logo-wide.png" alt="PolyEngine" className="h-16 md:h-20 w-auto object-contain drop-shadow-[0_0_18px_rgba(34,211,238,0.25)]" />
+            <img src="/polyengine-signal-dial.png" alt="PolyEngine" className="h-20 md:h-24 w-auto max-w-[320px] object-contain drop-shadow-[0_0_18px_rgba(34,211,238,0.22)]" />
             <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-300 text-xs font-bold rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.2)]">
               BTC 5M POLYMARKET ENGINE
             </span>
