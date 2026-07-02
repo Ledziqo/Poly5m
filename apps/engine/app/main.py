@@ -107,6 +107,10 @@ class EngineState:
     last_binance_rest_sync: float = 0.0
     last_polymarket_sync: float = 0.0
     last_chainlink_sync: float = 0.0
+    brain_bias: float = 0.0
+    brain_direction: str = "WAIT"
+    brain_confirmations: int = 0
+    brain_last_window_id: str = ""
 
 
 state = EngineState()
@@ -583,6 +587,84 @@ def indicator_pack() -> dict:
     }
 
 
+def pattern_memory() -> dict:
+    resolved = [t for t in state.history if t.status == "RESOLVED"]
+    last = resolved[-12:]
+    direction_stats = {"UP": {"wins": 0, "total": 0}, "DOWN": {"wins": 0, "total": 0}}
+    for trade in last:
+        if trade.direction in direction_stats:
+            direction_stats[trade.direction]["total"] += 1
+            if trade.actual_outcome == "WIN":
+                direction_stats[trade.direction]["wins"] += 1
+    up_rate = direction_stats["UP"]["wins"] / direction_stats["UP"]["total"] if direction_stats["UP"]["total"] else 0.5
+    down_rate = direction_stats["DOWN"]["wins"] / direction_stats["DOWN"]["total"] if direction_stats["DOWN"]["total"] else 0.5
+    recent_bias = clamp((up_rate - down_rate) * 0.18, -0.12, 0.12)
+    loss_streak = 0
+    for trade in reversed(resolved):
+        if trade.actual_outcome == "LOSS":
+            loss_streak += 1
+        else:
+            break
+    return {
+        "sample": len(last),
+        "up_rate": up_rate,
+        "down_rate": down_rate,
+        "recent_bias": recent_bias,
+        "loss_streak": loss_streak,
+    }
+
+
+def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: float, micro_momentum: float, window_id: str) -> dict:
+    if state.brain_last_window_id != window_id:
+        state.brain_bias = 0.0
+        state.brain_direction = "WAIT"
+        state.brain_confirmations = 0
+        state.brain_last_window_id = window_id
+
+    previous_direction = state.brain_direction
+    previous_bias = state.brain_bias
+    smoothed = previous_bias * 0.72 + raw_bias * 0.28
+    candidate = "UP" if smoothed > 0 else "DOWN"
+    margin = abs(smoothed)
+    edge_gap = abs(edge_up - edge_down)
+
+    if candidate == previous_direction:
+        state.brain_confirmations = min(8, state.brain_confirmations + 1)
+    else:
+        state.brain_confirmations = 1
+
+    required_margin = 0.065
+    if previous_direction in ("UP", "DOWN") and candidate != previous_direction:
+        required_margin = 0.11
+
+    stable_side = previous_direction
+    flip_blocked = False
+    if margin >= required_margin and state.brain_confirmations >= 2:
+        stable_side = candidate
+    elif previous_direction in ("UP", "DOWN"):
+        stable_side = previous_direction
+        flip_blocked = candidate != previous_direction
+    elif margin >= 0.045:
+        stable_side = candidate
+    else:
+        stable_side = "WAIT"
+
+    state.brain_bias = smoothed
+    state.brain_direction = stable_side
+
+    confidence = int(clamp(42 + margin * 210 + edge_gap * 850 + min(abs(micro_momentum), 2.2) * 9 + state.brain_confirmations * 2, 8, 88))
+    return {
+        "side": stable_side,
+        "smoothed_bias": smoothed,
+        "raw_bias": raw_bias,
+        "candidate": candidate,
+        "previous": previous_direction,
+        "confirmations": state.brain_confirmations,
+        "flip_blocked": flip_blocked,
+        "confidence": confidence,
+    }
+
+
 def compute_decision() -> dict:
     start, end = current_window_bounds()
     if state.pm_window_end:
@@ -592,6 +674,7 @@ def compute_decision() -> dict:
     elapsed = 300 - time_left
     price = state.current_price
     strike = state.price_to_beat or price
+    window_id = str(start)
     if not price or not strike:
         return wait_decision("Waiting for confirmed BTC price and price-to-beat.")
 
@@ -621,6 +704,9 @@ def compute_decision() -> dict:
     elif indicators["rsi"] < 22:
         trend_score += 0.35
     micro_momentum = clamp((r1 * 900) + (r3 * 260) + trend_score, -2.2, 2.2)
+    memory = pattern_memory()
+    if memory["loss_streak"] >= 2:
+        micro_momentum *= 0.72
     distance = (price - strike) / max(1, strike)
     seconds_to_expiry = max(20, time_left)
     projected_finish = distance + micro_momentum * vol * math.sqrt(seconds_to_expiry / 300)
@@ -631,19 +717,27 @@ def compute_decision() -> dict:
     fee = state.settings.taker_fee_rate
     edge_up = fair_up - state.up_ask - fee
     edge_down = fair_down - state.down_ask - fee
-    best_side = "UP" if edge_up >= edge_down else "DOWN"
-    best_edge = max(edge_up, edge_down)
+    raw_side = "UP" if edge_up >= edge_down else "DOWN"
+    raw_bias = clamp((edge_up - edge_down) * 1.6 + clamp(micro_momentum / 5.0, -0.45, 0.45) + memory["recent_bias"], -1.0, 1.0)
+    brain = brain_filter(raw_side, raw_bias, edge_up, edge_down, micro_momentum, window_id)
+    best_side = brain["side"] if brain["side"] in ("UP", "DOWN") else raw_side
+    best_edge = edge_up if best_side == "UP" else edge_down
+    raw_best_edge = max(edge_up, edge_down)
     forced = state.settings.skipped_windows >= state.settings.forced_cadence_every - 1
 
     entry_window_open = time_left > 120
     data_reasons = [
-        f"Indicator score is {micro_momentum:+.2f}: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
-        f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee.",
+        f"Brain bias is {brain['smoothed_bias']:+.3f} after smoothing raw signal {brain['raw_bias']:+.3f}; current stable read is {brain['side']} with {brain['confirmations']} confirmation ticks.",
+        f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
+        f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
+        f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee; stable side edge is {best_edge * 100:+.2f}c.",
         f"Entry window has {time_left:.0f}s left; new entries close at 2:00 remaining.",
     ]
+    if brain["flip_blocked"]:
+        data_reasons.append(f"Anti-flip guard blocked a quick switch from {brain['previous']} to {brain['candidate']} because confirmation/margin is not strong enough yet.")
 
     min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012)
-    confidence = int(clamp(50 + abs(best_edge) * 700 + abs(micro_momentum) * 12, 5, 92))
+    confidence = brain["confidence"]
 
     if not entry_window_open and not state.active_trade:
         return {
@@ -667,7 +761,7 @@ def compute_decision() -> dict:
 
     return {
         **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
-        "reasons": data_reasons + [f"Waiting because best net edge is only {best_edge * 100:+.2f}c, below the risk-mode threshold."],
+        "reasons": data_reasons + [f"Waiting because stable-side edge is {best_edge * 100:+.2f}c and raw best edge is {raw_best_edge * 100:+.2f}c, below the risk-mode threshold or not confirmed enough."],
         "no_trade_reason": "No fee-adjusted edge yet.",
     }
 
