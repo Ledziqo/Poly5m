@@ -78,6 +78,9 @@ export interface Trade {
   stake: number;
   fee_paid: number;
   pnl: number;
+  mark_price?: number;
+  current_value?: number;
+  unrealized_pnl?: number;
   actual_outcome?: 'WIN' | 'LOSS' | 'PUSH';
   forced_trade: boolean;
   reason: string;

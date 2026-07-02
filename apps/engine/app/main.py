@@ -636,6 +636,46 @@ def pattern_memory() -> dict:
     }
 
 
+def market_read(indicators: dict, r1: float, r3: float, distance: float, time_left: float) -> dict:
+    trend_strength = abs(indicators["ema_slope"] * 950) + abs(indicators["vwap_distance"] * 420) + abs(r1 * 700)
+    chop_penalty = max(0.0, indicators["volatility"] * 1200 - trend_strength)
+    direction_agreement = 0
+    direction_agreement += 1 if indicators["ema_slope"] > 0 else -1
+    direction_agreement += 1 if indicators["vwap_distance"] > 0 else -1
+    direction_agreement += 1 if r1 > 0 else -1
+    direction_agreement += 1 if r3 > 0 else -1
+    direction_agreement += 1 if distance > 0 else -1
+
+    if chop_penalty > 1.4:
+        regime = "choppy"
+    elif indicators["rsi"] > 78 or indicators["rsi"] < 22:
+        regime = "exhaustion-risk"
+    elif abs(direction_agreement) >= 4 and trend_strength > 0.55:
+        regime = "aligned-trend"
+    elif time_left < 150:
+        regime = "late-window"
+    else:
+        regime = "mixed"
+
+    patience = 0.0
+    if regime == "choppy":
+        patience += 0.012
+    if regime == "exhaustion-risk":
+        patience += 0.008
+    if time_left < 180:
+        patience += 0.006
+    if abs(direction_agreement) >= 4:
+        patience -= 0.004
+
+    return {
+        "regime": regime,
+        "agreement": direction_agreement,
+        "trend_strength": trend_strength,
+        "chop_penalty": chop_penalty,
+        "extra_edge_required": clamp(patience, 0.0, 0.025),
+    }
+
+
 def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: float, micro_momentum: float, window_id: str) -> dict:
     if state.brain_last_window_id != window_id:
         state.brain_bias = 0.0
@@ -728,6 +768,7 @@ def compute_decision() -> dict:
     if memory["loss_streak"] >= 2:
         micro_momentum *= 0.72
     distance = (price - strike) / max(1, strike)
+    read = market_read(indicators, r1, r3, distance, time_left)
     seconds_to_expiry = max(20, time_left)
     projected_finish = distance + micro_momentum * vol * math.sqrt(seconds_to_expiry / 300)
     sigma = max(0.00035, vol * math.sqrt(seconds_to_expiry / 60))
@@ -738,7 +779,8 @@ def compute_decision() -> dict:
     edge_up = fair_up - state.up_ask - fee
     edge_down = fair_down - state.down_ask - fee
     raw_side = "UP" if edge_up >= edge_down else "DOWN"
-    raw_bias = clamp((edge_up - edge_down) * 1.6 + clamp(micro_momentum / 5.0, -0.45, 0.45) + memory["recent_bias"], -1.0, 1.0)
+    agreement_bias = clamp(read["agreement"] * 0.035, -0.18, 0.18)
+    raw_bias = clamp((edge_up - edge_down) * 1.6 + clamp(micro_momentum / 5.0, -0.45, 0.45) + memory["recent_bias"] + agreement_bias, -1.0, 1.0)
     brain = brain_filter(raw_side, raw_bias, edge_up, edge_down, micro_momentum, window_id)
     best_side = brain["side"] if brain["side"] in ("UP", "DOWN") else raw_side
     best_edge = edge_up if best_side == "UP" else edge_down
@@ -748,6 +790,7 @@ def compute_decision() -> dict:
     entry_window_open = time_left > 120
     data_reasons = [
         f"Autonomous brain bias is {brain['smoothed_bias']:+.3f} after smoothing raw signal {brain['raw_bias']:+.3f}; current stable read is {brain['side']} with {brain['signal_age']} signal-memory ticks.",
+        f"Market read is {read['regime']}: agreement score {read['agreement']:+d}/5, trend strength {read['trend_strength']:.2f}, chop pressure {read['chop_penalty']:.2f}.",
         f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
         f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee; stable side edge is {best_edge * 100:+.2f}c.",
@@ -756,8 +799,12 @@ def compute_decision() -> dict:
     if brain["flip_blocked"]:
         data_reasons.append(f"Autonomous anti-noise guard held {brain['previous']} instead of chasing a weak {brain['candidate']} twitch.")
 
-    min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012)
+    min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012) + read["extra_edge_required"]
     confidence = brain["confidence"]
+    if read["regime"] == "aligned-trend":
+        confidence = min(92, confidence + 4)
+    elif read["regime"] in ("choppy", "exhaustion-risk"):
+        confidence = max(5, confidence - 7)
 
     if not entry_window_open and not state.active_trade:
         return {
@@ -776,7 +823,7 @@ def compute_decision() -> dict:
     if best_edge >= min_edge and entry_window_open:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Selected {best_side} because its net edge beats the {min_edge * 100:.1f}c threshold."],
+            "reasons": data_reasons + [f"Selected {best_side} because its net edge beats the regime-adjusted {min_edge * 100:.1f}c threshold."],
         }
 
     return {
@@ -873,9 +920,24 @@ def dashboard_payload() -> dict:
         "settings": state.settings.__dict__,
         "window": window_payload(),
         "decision": compute_decision(),
-        "active_trade": state.active_trade.__dict__ if state.active_trade else None,
+        "active_trade": trade_payload(state.active_trade) if state.active_trade else None,
         "analytics": analytics(),
     }
+
+
+def trade_payload(trade: Trade) -> dict:
+    payload = trade.__dict__.copy()
+    if trade.status == "OPEN":
+        mark_price = state.up_bid if trade.direction == "UP" else state.down_bid
+        current_value = trade.shares_count * max(0.0, mark_price)
+        payload["mark_price"] = mark_price
+        payload["current_value"] = current_value
+        payload["unrealized_pnl"] = current_value - trade.stake
+    else:
+        payload["mark_price"] = trade.exit_price
+        payload["current_value"] = trade.shares_count * trade.exit_price if trade.exit_price is not None else 0
+        payload["unrealized_pnl"] = trade.pnl
+    return payload
 
 
 def settle_active_trade(reason: str = "window rollover") -> None:
@@ -1008,7 +1070,7 @@ async def stream():
             payload = {
                 "status": dashboard_payload(),
                 "candles": state.candles[-180:],
-                "history": [t.__dict__ for t in reversed(state.history[-100:])],
+                "history": [trade_payload(t) for t in reversed(state.history[-100:])],
                 "logs": list(reversed(state.logs[-100:])),
                 "server_time": now_ms(),
             }
@@ -1033,7 +1095,7 @@ async def candles():
 
 @app.get("/api/history")
 async def history():
-    return [t.__dict__ for t in reversed(state.history[-100:])]
+    return [trade_payload(t) for t in reversed(state.history[-100:])]
 
 
 @app.get("/api/logs")

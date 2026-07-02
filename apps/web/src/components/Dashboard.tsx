@@ -251,6 +251,8 @@ function MetricCard({ label, icon, value, sub, tone = 'white' }: { label: string
 }
 
 function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean }) {
+  const livePnl = active ? (trade.unrealized_pnl ?? trade.pnl) : trade.pnl;
+  const markPrice = active ? trade.mark_price : trade.exit_price;
   return (
     <motion.div
       initial={{ opacity: 0, y: 5 }}
@@ -270,15 +272,24 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
           <span>{(trade.entry_price * 100).toFixed(1)}c</span>
           <span className="text-slate-600">-</span>
           <span>fee ${trade.fee_paid.toFixed(2)}</span>
+          {active && markPrice !== undefined && (
+            <>
+              <span className="text-slate-600">-</span>
+              <span>mark {(markPrice * 100).toFixed(1)}c</span>
+            </>
+          )}
         </div>
       </div>
       <div className="text-right">
         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold mb-1 inline-block ${trade.actual_outcome === 'WIN' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : active ? 'bg-blue-500/10 text-blue-300 border border-blue-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
           {active ? 'OPEN' : trade.actual_outcome || trade.status}
         </span>
-        <div className={`font-mono font-medium ${trade.pnl > 0 ? 'text-emerald-400' : trade.pnl < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-          {trade.pnl > 0 ? '+' : ''}{trade.pnl.toFixed(2)}
+        <div className={`font-mono font-medium ${livePnl > 0 ? 'text-emerald-400' : livePnl < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+          {livePnl > 0 ? '+' : ''}{livePnl.toFixed(2)}
         </div>
+        {active && trade.current_value !== undefined && (
+          <div className="text-[10px] text-slate-500">value ${trade.current_value.toFixed(2)}</div>
+        )}
       </div>
     </motion.div>
   );
