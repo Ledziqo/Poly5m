@@ -493,14 +493,10 @@ def maybe_capture_price_to_beat(price: float, timestamp_ms: int) -> None:
     if not state.pm_window_start or not state.pm_window_end:
         return
     window_id = str(state.pm_window_start)
-    distance = abs(timestamp_ms - state.pm_window_start)
-    if (
-        state.price_to_beat_source == "polymarket"
-        and state.price_to_beat_window_id == window_id
-        and distance >= state.price_to_beat_distance_ms
-    ):
+    if state.price_to_beat_source == "polymarket" and state.price_to_beat_window_id == window_id:
         return
-    if state.pm_window_start - 5_000 <= timestamp_ms <= state.pm_window_start + 60_000:
+    distance = abs(timestamp_ms - state.pm_window_start)
+    if state.pm_window_start - 5_000 <= timestamp_ms <= state.pm_window_start + 10_000:
         state.price_to_beat = price
         state.price_to_beat_source = "polymarket"
         state.price_to_beat_window_id = window_id
@@ -1306,7 +1302,7 @@ def window_payload() -> dict:
         "status": "active",
         "window_start": start,
         "window_end": end,
-        "price_to_beat": state.price_to_beat or state.current_price,
+        "price_to_beat": state.price_to_beat,
         "current_price": state.current_price,
         "indicator_price": state.indicator_price,
         "chainlink_status": state.chainlink_status,

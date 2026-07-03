@@ -25,6 +25,7 @@ export default function PredictionCard({
   const actionColor = isWait ? 'text-slate-300' : isUp ? 'text-blue-400' : 'text-pink-500';
   const actionBg = isWait ? 'from-slate-500 to-slate-800' : isUp ? 'from-blue-500 to-cyan-500' : 'from-pink-500 to-rose-500';
   const polymarketUrl = `https://polymarket.com/event/${window.market_slug}`;
+  const hasLockedBeat = window.price_to_beat > 0;
 
   return (
     <motion.div
@@ -80,11 +81,11 @@ export default function PredictionCard({
       <div className="grid grid-cols-2 gap-4 mb-6 relative z-10">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Price to Beat</div>
-          <div className="text-xl font-mono font-bold text-white">${window.price_to_beat.toFixed(2)}</div>
+          <div className="text-xl font-mono font-bold text-white">{hasLockedBeat ? `$${window.price_to_beat.toFixed(2)}` : 'Locking...'}</div>
         </div>
         <div className="text-right">
           <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Current Reference</div>
-          <div className={clsx('text-xl font-mono font-bold', window.current_price >= window.price_to_beat ? 'text-blue-400' : 'text-pink-500')}>
+          <div className={clsx('text-xl font-mono font-bold', !hasLockedBeat ? 'text-white' : window.current_price >= window.price_to_beat ? 'text-blue-400' : 'text-pink-500')}>
             ${window.current_price.toFixed(2)}
           </div>
         </div>
