@@ -63,16 +63,16 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
         <section className="relative overflow-hidden border-b border-[#403653]">
           <div className="absolute inset-0 opacity-[0.16] bg-[linear-gradient(90deg,#6D5A91_1px,transparent_1px),linear-gradient(#6D5A91_1px,transparent_1px)] bg-[size:54px_54px]" />
           <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#3A2A5C]/25 to-transparent" />
-          <div className="relative max-w-7xl mx-auto px-4 md:px-6 py-7 md:py-12 grid lg:grid-cols-[0.96fr_1.04fr] gap-7 lg:gap-10 items-center">
+          <div className="relative max-w-7xl mx-auto px-4 md:px-6 py-5 md:py-6 grid lg:grid-cols-[0.96fr_1.04fr] gap-5 lg:gap-7 items-center">
             <div>
               <div className="flex items-center gap-0">
-                <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-40 w-40 sm:h-52 sm:w-52 md:h-72 md:w-72 object-cover shrink-0 -ml-4 sm:-ml-12 md:-ml-16" loading="eager" fetchPriority="high" />
-                <div className="min-w-0 -ml-9 sm:-ml-8 md:-ml-12">
-                  <div className="text-[1.7rem] sm:text-4xl md:text-6xl font-semibold uppercase tracking-[0.1em] sm:tracking-[0.16em] md:tracking-[0.18em] text-white leading-none">PolyEngine</div>
-                  <div className="mt-2 text-[11px] sm:text-sm md:text-lg font-semibold uppercase tracking-[0.18em] md:tracking-[0.28em] text-[#CBB9FF]">BTC 5m terminal</div>
+                <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-[7.5rem] w-[7.5rem] sm:h-36 sm:w-36 md:h-48 md:w-48 object-cover shrink-0 -ml-4 sm:-ml-7 md:-ml-10" loading="eager" fetchPriority="high" />
+                <div className="min-w-0 -ml-7 sm:-ml-7 md:-ml-9">
+                  <div className="text-[1.7rem] sm:text-4xl md:text-5xl font-semibold uppercase tracking-[0.1em] sm:tracking-[0.16em] md:tracking-[0.18em] text-white leading-none">PolyEngine</div>
+                  <div className="mt-2 text-[11px] sm:text-sm md:text-base font-semibold uppercase tracking-[0.18em] md:tracking-[0.28em] text-[#CBB9FF]">BTC 5m terminal</div>
                 </div>
               </div>
-              <p className="hidden sm:block mt-5 md:mt-6 max-w-xl text-sm md:text-base leading-7 text-[#B7AFC7]">
+              <p className="hidden sm:block mt-2 md:mt-3 max-w-xl text-sm leading-6 text-[#B7AFC7]">
                 Live Polymarket BTC Up/Down rounds, Chainlink reference price, CLOB odds, and simulated execution in a private cockpit.
               </p>
               <ProductPreview />
@@ -82,18 +82,18 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
               <div className="inline-flex w-fit border border-[#6F5A99] bg-[#1B1428] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#CBB9FF]">
                 Private Polymarket execution lab
               </div>
-              <h1 className="mt-4 md:mt-5 text-[2rem] sm:text-4xl md:text-5xl font-semibold leading-[1.04] tracking-tight text-white">
+              <h1 className="mt-4 text-[2rem] sm:text-4xl md:text-[2.85rem] font-semibold leading-[1.04] tracking-tight text-white">
                 A sharper command center for Bitcoin's 5-minute knife edge.
               </h1>
-              <p className="mt-4 md:mt-5 max-w-2xl text-sm md:text-base leading-7 text-[#B7AFC7]">
+              <p className="mt-4 max-w-2xl text-sm md:text-base leading-7 text-[#B7AFC7]">
                 PolyEngine tracks the live Polymarket BTC Up/Down round with market-synced timing, price-to-beat, CLOB odds, entry discipline, and a decision audit designed for one market only.
               </p>
-              <div className="mt-5 md:mt-6 flex flex-wrap gap-3 text-[11px] md:text-xs uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">
+              <div className="mt-5 flex flex-wrap gap-3 text-[11px] md:text-xs uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">
                 <span className="border-l border-[#6F5A99] pl-3">1:1 market source</span>
                 <span className="border-l border-[#6F5A99] pl-3">live CLOB odds</span>
                 <span className="border-l border-[#6F5A99] pl-3">RTDS BTC feed</span>
               </div>
-              <div className="mt-5 md:mt-6 flex flex-wrap gap-3">
+              <div className="mt-5 flex flex-wrap gap-3">
                 <button onClick={() => onNav('/login')} className="h-11 md:h-12 px-5 bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition shadow-[0_0_28px_rgba(143,125,181,0.18)]">Open terminal</button>
                 <button onClick={() => onNav('/request-access')} className="h-11 md:h-12 px-5 border border-[#4C3C68] bg-[#15111F] text-sm font-semibold text-white hover:bg-[#211A31] transition">Request access</button>
               </div>
@@ -199,40 +199,42 @@ function SourceBlock({ label, value, detail }: { label: string; value: string; d
 
 function ProductPreview() {
   return (
-    <div className="mt-6 border border-[#403653] bg-[#08070C]/95 shadow-2xl shadow-black/35 overflow-hidden">
+    <div className="mt-4 border border-[#403653] bg-[#08070C]/95 shadow-2xl shadow-black/35 overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-[#403653] px-3 md:px-4 py-2.5 md:py-3">
         <span className="text-[9px] md:text-[10px] uppercase tracking-[0.18em] md:tracking-[0.22em] text-[#8F7DB5]">BTC 5m execution terminal</span>
         <span className="font-mono text-xs text-emerald-300">LIVE MARKET</span>
       </div>
       <div className="grid md:grid-cols-[1.2fr_0.8fr] gap-0">
-        <div className="relative h-56 md:h-64 border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.07)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.07)_1px,transparent_1px)] bg-[size:36px_36px]" />
-          <div className="absolute left-3 md:left-4 top-3 md:top-4 border border-[#403653] bg-[#0D0B12]/90 px-2 md:px-3 py-1.5 md:py-2">
-            <div className="text-[8px] md:text-[9px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">Reference</div>
-            <div className="font-mono text-xs md:text-sm text-white">$62,104.26</div>
+        <div className="border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
+          <div className="relative h-32 md:h-36 border-b border-[#403653] overflow-hidden">
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.07)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.07)_1px,transparent_1px)] bg-[size:36px_36px]" />
+            <div className="absolute left-3 md:left-4 top-3 md:top-4 border border-[#403653] bg-[#0D0B12]/90 px-2 md:px-3 py-1.5 md:py-2">
+              <div className="text-[8px] md:text-[9px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">Reference</div>
+              <div className="font-mono text-xs md:text-sm text-white">$62,104.26</div>
+            </div>
+            <div className="absolute right-3 md:right-4 top-3 md:top-4 border border-[#403653] bg-[#0D0B12]/90 px-2 md:px-3 py-1.5 md:py-2 text-right">
+              <div className="text-[8px] md:text-[9px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">To beat</div>
+              <div className="font-mono text-xs md:text-sm text-[#CBB9FF]">$62,083.10</div>
+            </div>
+            <svg viewBox="0 0 520 180" className="absolute inset-0 h-full w-full">
+              <line x1="0" y1="106" x2="520" y2="106" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.72" />
+              <line x1="386" y1="0" x2="386" y2="180" stroke="#E879F9" strokeDasharray="5 8" opacity="0.44" />
+              <path className="landing-line" d="M0 132 C40 116 74 126 112 102 C160 74 198 110 238 88 C286 58 328 80 370 58 C420 32 470 60 520 36" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
+              <path d="M0 166 C70 154 128 160 190 132 C260 102 330 112 404 76 C458 52 492 66 520 48 L520 180 L0 180 Z" fill="rgba(111,90,153,0.18)" />
+            </svg>
           </div>
-          <div className="absolute right-3 md:right-4 top-3 md:top-4 border border-[#403653] bg-[#0D0B12]/90 px-2 md:px-3 py-1.5 md:py-2 text-right">
-            <div className="text-[8px] md:text-[9px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">To beat</div>
-            <div className="font-mono text-xs md:text-sm text-[#CBB9FF]">$62,083.10</div>
-          </div>
-          <svg viewBox="0 0 520 250" className="absolute inset-0 h-full w-full">
-            <line x1="0" y1="132" x2="520" y2="132" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.72" />
-            <line x1="386" y1="0" x2="386" y2="250" stroke="#E879F9" strokeDasharray="5 8" opacity="0.44" />
-            <path className="landing-line" d="M0 172 C40 150 74 166 112 134 C160 96 198 142 238 112 C286 76 328 102 370 74 C420 40 470 80 520 48" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
-            <path d="M0 210 C70 194 128 202 190 168 C260 130 330 146 404 98 C458 66 492 82 520 62 L520 250 L0 250 Z" fill="rgba(111,90,153,0.18)" />
-          </svg>
-          <div className="absolute left-3 md:left-4 bottom-3 md:bottom-4 right-3 md:right-4">
+          <div className="bg-[#08070C]/95 p-2.5 md:p-3">
             <div className="grid grid-cols-3 gap-2">
               <PreviewPill label="Round" value="07:45 AM" />
               <PreviewPill label="Cutoff" value="02:00" />
               <PreviewPill label="Bias" value="UP 63%" />
             </div>
             <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
-              <div className="border border-[#403653] bg-[#08070C]/90 px-2 py-2 font-mono text-[10px] md:text-[11px]">
+              <div className="border border-[#403653] bg-[#0D0B12] px-2 py-1.5 font-mono text-[10px] md:text-[11px]">
                 <div className="flex justify-between gap-3"><span className="text-slate-500">07:42:14</span><span className="text-emerald-300">edge passed</span></div>
-                <div className="mt-1 flex justify-between gap-3"><span className="text-slate-500">07:42:18</span><span className="text-[#CBB9FF]">book checked</span></div>
+                <div className="hidden sm:flex mt-1 justify-between gap-3"><span className="text-slate-500">07:42:18</span><span className="text-[#CBB9FF]">book checked</span></div>
               </div>
-              <div className="border border-[#403653] bg-[#1B1428]/90 px-3 py-2 text-right">
+              <div className="border border-[#403653] bg-[#1B1428] px-3 py-1.5 text-right">
                 <div className="text-[8px] uppercase tracking-[0.16em] text-[#8F7DB5]">stake</div>
                 <div className="mt-1 font-mono text-xs text-white">$50</div>
               </div>
