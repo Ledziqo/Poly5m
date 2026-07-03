@@ -177,12 +177,12 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
       <div className="mt-5 grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
           <div className="flex items-center gap-2 text-xs text-cyan-300 mb-1">
-            <SlidersHorizontal className="w-3 h-3" /> Cadence
+            <SlidersHorizontal className="w-3 h-3" /> Entry Rule
           </div>
           <div className="text-lg font-mono font-bold text-white">
-            {local.skipped_windows}/{local.forced_cadence_every - 1}
+            03:00
           </div>
-          <div className="text-[10px] text-slate-500">3rd skip forces a trade</div>
+          <div className="text-[10px] text-slate-500">every round must enter</div>
         </div>
         <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
           <div className="flex items-center gap-2 text-xs text-orange-300 mb-1">

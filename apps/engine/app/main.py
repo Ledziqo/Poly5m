@@ -20,8 +20,8 @@ from pydantic import BaseModel
 Direction = Literal["UP", "DOWN", "WAIT"]
 DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
-ENTRY_MIN_ELAPSED_SECONDS = 60
-ENTRY_CUTOFF_SECONDS = 150
+ENTRY_MIN_ELAPSED_SECONDS = 10
+ENTRY_FORCE_SECONDS = 180
 
 
 def now_ms() -> int:
@@ -1001,18 +1001,19 @@ def compute_decision() -> dict:
     best_side = brain["side"] if brain["side"] in ("UP", "DOWN") else raw_side
     best_edge = edge_up if best_side == "UP" else edge_down
     raw_best_edge = max(edge_up, edge_down)
-    forced = state.settings.skipped_windows >= state.settings.forced_cadence_every - 1
+    force_now = time_left <= ENTRY_FORCE_SECONDS
+    forced = force_now
 
-    entry_window_open = elapsed >= ENTRY_MIN_ELAPSED_SECONDS and time_left > ENTRY_CUTOFF_SECONDS
+    entry_window_open = elapsed >= ENTRY_MIN_ELAPSED_SECONDS and time_left > ENTRY_FORCE_SECONDS
     before_entry_window = elapsed < ENTRY_MIN_ELAPSED_SECONDS
-    after_entry_window = time_left <= ENTRY_CUTOFF_SECONDS
+    force_window_reached = time_left <= ENTRY_FORCE_SECONDS
     data_reasons = [
         f"Autonomous brain bias is {brain['smoothed_bias']:+.3f} after smoothing raw signal {brain['raw_bias']:+.3f}; current stable read is {brain['side']} with {brain['signal_age']} signal-memory ticks.",
         f"Market read is {read['regime']}: agreement score {read['agreement']:+d}/5, trend strength {read['trend_strength']:.2f}, chop pressure {read['chop_penalty']:.2f}.",
         f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
         f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee; stable side edge is {best_edge * 100:+.2f}c.",
-        f"Entry discipline: wait through the first 60s for signal formation, then enter only before 2:30 remaining unless forced cadence is already active.",
+        f"Entry discipline: analyze immediately, enter when confidence is ready, and force the strongest side by 3:00 remaining so no round is skipped.",
     ]
     if brain["flip_blocked"]:
         data_reasons.append(f"Autonomous anti-noise guard held {brain['previous']} instead of chasing a weak {brain['candidate']} twitch.")
@@ -1027,13 +1028,26 @@ def compute_decision() -> dict:
     stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 2
     learned_penalty = memory["loss_streak"] >= 2 and not forced
 
+    if before_entry_window and not state.active_trade:
+        reason = "Collecting the opening ticks before placing this round's required trade."
+        no_trade_reason = "Opening observation."
+        return {
+            **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, 0, "WAIT"),
+            "confidence": confidence,
+            "reasons": data_reasons + [reason],
+            "no_trade_reason": no_trade_reason,
+        }
+
+    if force_window_reached and not state.active_trade:
+        return {
+            **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
+            "reasons": data_reasons + [f"Mandatory round entry triggered at 3:00 remaining. Selected {best_side}, the strongest available side after the analysis window."],
+        }
+
     if not entry_window_open and not state.active_trade:
         if before_entry_window:
-            reason = "No new entry allowed during the first minute; collecting pattern, momentum, and order-book confirmation."
-            no_trade_reason = "First-minute observation window."
-        elif after_entry_window:
-            reason = "No new entry allowed because 2:30 cutoff has passed."
-            no_trade_reason = "Entry window closed."
+            reason = "Opening observation is still collecting pattern, momentum, and order-book confirmation."
+            no_trade_reason = "Opening observation."
         else:
             reason = "No new entry allowed outside the configured decision window."
             no_trade_reason = "Outside entry window."
@@ -1047,7 +1061,7 @@ def compute_decision() -> dict:
     if forced:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Forced cadence is active after two skipped windows, so this third window must take the best available side before cutoff. Selected {best_side}."],
+            "reasons": data_reasons + [f"Mandatory round entry selected {best_side}, the strongest available side."],
         }
 
     if best_edge >= min_edge and confidence >= min_confidence and stable_enough and not learned_penalty and entry_window_open:
@@ -1246,12 +1260,7 @@ async def maybe_trade() -> None:
         save_setting("skipped_windows", state.settings.skipped_windows)
         log("TRADE", f"Entered {direction} at {ask * 100:.1f}c with ${stake:.2f}. {trade.reason}")
     else:
-        current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
-        if (end - current_time) <= ENTRY_CUTOFF_SECONDS * 1000:
-            state.processed_window_id = window_id
-            state.settings.skipped_windows += 1
-            save_setting("skipped_windows", state.settings.skipped_windows)
-            log("INFO", f"Skipped window {window_id}. {decision.get('no_trade_reason') or decision['reasons'][-1]}")
+        return
 
 
 async def worker_loop() -> None:
@@ -1399,7 +1408,7 @@ async def control(body: ControlBody):
     if body.action == "start":
         state.settings.bot_state = "running"
         save_setting("bot_state", state.settings.bot_state)
-        log("INFO", "Bot started. It may enter from 5:00 to 2:00 remaining and cannot skip three windows in a row.")
+        log("INFO", "Bot started. Every round must enter: the brain analyzes early and forces the strongest side by 3:00 remaining.")
     elif body.action == "stop":
         state.settings.bot_state = "stopped"
         save_setting("bot_state", state.settings.bot_state)
