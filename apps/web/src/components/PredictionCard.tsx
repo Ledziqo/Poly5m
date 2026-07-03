@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BrainCircuit, ShieldAlert, Timer, Zap } from 'lucide-react';
+import { ArrowDown, ArrowUp, BrainCircuit, ExternalLink, ShieldAlert, Timer, Zap } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion } from 'motion/react';
 import { BtcWindow, Decision, Trade } from '../api';
@@ -24,6 +24,7 @@ export default function PredictionCard({
   const isWait = decision.direction === 'WAIT';
   const actionColor = isWait ? 'text-slate-300' : isUp ? 'text-blue-400' : 'text-pink-500';
   const actionBg = isWait ? 'from-slate-500 to-slate-800' : isUp ? 'from-blue-500 to-cyan-500' : 'from-pink-500 to-rose-500';
+  const polymarketUrl = `https://polymarket.com/event/${window.market_slug}`;
 
   return (
     <motion.div
@@ -45,9 +46,21 @@ export default function PredictionCard({
             <span>{window.status}</span>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-slate-300">
-            {decision.action}
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            <a
+              href={polymarketUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-cyan-500/25 bg-cyan-500/10 text-[10px] font-bold uppercase tracking-wide text-cyan-300 hover:bg-cyan-500/15 hover:border-cyan-400/40 transition-colors"
+              title="Open current Polymarket BTC 5m event"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Market
+            </a>
+            <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-slate-300">
+              {decision.action}
+            </div>
           </div>
           <div className="flex gap-2">
             <div className="flex items-center gap-1 text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded border border-purple-500/20" title="Model confidence">
