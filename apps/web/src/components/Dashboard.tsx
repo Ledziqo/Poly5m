@@ -133,29 +133,32 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-[#07070A] flex items-center justify-center">
+        <div className="h-12 w-12 border border-[#403653] border-b-[#CBB9FF] animate-spin"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0B0E14] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-violet-900/20 via-[#0B0E14] to-[#0B0E14] p-6 text-slate-100 font-sans">
+    <div className="min-h-screen bg-[#07070A] bg-[linear-gradient(90deg,rgba(203,185,255,0.035)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.035)_1px,transparent_1px)] bg-[size:56px_56px] p-6 text-slate-100 font-sans">
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center gap-4">
-            <img src="/polyengine-signal-dial.png" alt="PolyEngine" className="h-20 md:h-24 w-auto max-w-[320px] object-contain drop-shadow-[0_0_18px_rgba(34,211,238,0.22)]" />
-            <span className="px-2 py-0.5 bg-cyan-500/10 text-cyan-300 text-xs font-bold rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.2)]">
-              BTC 5M POLYMARKET ENGINE
-            </span>
+            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-16 w-16 object-cover border border-[#4A3A6A]" loading="eager" fetchPriority="high" />
+            <div>
+              <div className="text-xl font-semibold uppercase tracking-[0.2em] text-white">PolyEngine</div>
+              <div className="mt-1 inline-flex border border-[#403653] bg-[#15111F] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#CBB9FF]">
+                BTC 5M POLYMARKET ENGINE
+              </div>
+            </div>
           </div>
-          <p className="text-sm text-slate-400 mt-2">Fee-aware BTC 5-minute Up/Down paper trading cockpit</p>
+          <p className="text-sm text-[#B7AFC7] mt-2">Fee-aware BTC 5-minute Up/Down paper trading cockpit</p>
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="flex items-center gap-4">
-          <div className="text-xs text-slate-400 flex items-center gap-1">
-            <RefreshCw className="w-3 h-3" /> {streamConnected ? 'Live stream' : 'Polling backup'}: {formatET(lastUpdated.getTime())}
+          <div className="text-xs text-[#B7AFC7] flex items-center gap-1 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2">
+            <RefreshCw className="w-3 h-3 text-[#CBB9FF]" /> {streamConnected ? 'Live stream' : 'Polling backup'}: {formatET(lastUpdated.getTime())}
           </div>
-          <div className={`h-2 w-2 rounded-full animate-pulse ${data.settings.bot_state === 'running' ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]' : 'bg-slate-600'}`} />
+          <div className={`h-2 w-2 animate-pulse ${data.settings.bot_state === 'running' ? 'bg-[#CBB9FF] shadow-[0_0_10px_rgba(203,185,255,0.7)]' : 'bg-slate-600'}`} />
         </motion.div>
       </header>
 

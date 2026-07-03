@@ -45,7 +45,7 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
       <div className="border-b border-[#403653] bg-[#08070C]/95">
         <div className="max-w-7xl mx-auto px-5 md:px-6 h-20 flex items-center justify-between gap-4">
           <button onClick={() => onNav('/')} className="flex items-center gap-3">
-            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-11 w-11 object-cover border border-[#4A3A6A]" />
+            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-14 w-14 object-cover border border-[#4A3A6A]" loading="eager" fetchPriority="high" />
             <div className="text-left">
               <div className="text-base font-semibold tracking-[0.18em] text-white uppercase">PolyEngine</div>
               <div className="text-[10px] uppercase tracking-[0.24em] text-[#8F7DB5]">BTC 5m terminal</div>
@@ -73,7 +73,7 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
                 Private Polymarket execution lab
               </div>
               <h1 className="mt-6 text-4xl md:text-6xl font-semibold leading-[1.01] tracking-tight text-white">
-                A sharper command center for Bitcoin’s 5-minute knife edge.
+                A sharper command center for Bitcoin's 5-minute knife edge.
               </h1>
               <p className="mt-6 max-w-xl text-base md:text-lg leading-8 text-[#B7AFC7]">
                 PolyEngine tracks the live Polymarket BTC Up/Down round with Chainlink reference price, CLOB odds, entry discipline, and a decision audit designed for one market only.
@@ -87,16 +87,18 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
                 <button onClick={() => onNav('/login')} className="h-12 px-5 bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition shadow-[0_0_28px_rgba(143,125,181,0.18)]">Open terminal</button>
                 <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-[#4C3C68] bg-[#15111F] text-sm font-semibold text-white hover:bg-[#211A31] transition">Request access</button>
               </div>
-              <div className="mt-10 grid grid-cols-[82px_1fr] gap-4 items-center max-w-xl border border-[#403653] bg-[#0D0B12]/80 p-3">
-                <img src="/polyengine-icon-logo.png" alt="" className="h-20 w-20 object-cover" />
+            </div>
+
+            <div>
+              <TerminalPreview />
+              <div className="mt-4 grid grid-cols-[96px_1fr] gap-4 items-center border border-[#403653] bg-[#0D0B12]/90 p-4">
+                <img src="/polyengine-icon-logo.png" alt="" className="h-24 w-24 object-cover" loading="eager" />
                 <div>
                   <div className="text-[10px] uppercase tracking-[0.24em] text-[#8F7DB5]">New mark system</div>
                   <div className="mt-1 text-sm leading-6 text-slate-300">Faceted, dark, mechanical. The interface now follows the logo instead of looking like a generic AI site.</div>
                 </div>
               </div>
             </div>
-
-            <TerminalPreview />
           </div>
         </section>
 
@@ -185,38 +187,57 @@ function SourceBlock({ label, value, detail }: { label: string; value: string; d
 
 function TerminalPreview() {
   return (
-    <div className="border border-[#4C3C68] bg-[#09070E] shadow-2xl shadow-black/40 relative">
+    <div className="border border-[#4C3C68] bg-[#09070E] shadow-2xl shadow-black/40 relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#2A2038] via-[#CBB9FF] to-[#2A2038]" />
       <div className="absolute -left-3 top-10 hidden h-48 w-3 bg-[#6F5A99] lg:block" />
       <div className="absolute -right-3 bottom-12 hidden h-36 w-3 bg-[#CBB9FF] lg:block" />
-      <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
+      <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3 bg-[#0D0B12]">
         <div className="flex items-center gap-3">
           <span className="h-2.5 w-2.5 bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.7)]" />
-          <span className="text-xs uppercase tracking-[0.2em] text-slate-400">Live market view</span>
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-400">Round control surface</span>
         </div>
         <span className="text-xs font-mono text-[#8F7DB5]">btc-updown-5m</span>
       </div>
       <div className="p-4 md:p-5">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-[1fr_1fr_1fr_1.2fr] gap-3">
           <PreviewStat label="Timer" value="01:48" tone="red" />
-          <PreviewStat label="To beat" value="$62,081" tone="green" />
+          <PreviewStat label="To beat" value="$62,081" tone="pink" />
           <PreviewStat label="Current" value="$62,104" tone="green" />
-          <PreviewStat label="Decision" value="UP" tone="green" />
+          <div className="border border-[#6F5A99] bg-[#1B1428] p-3">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[#8F7DB5] mb-2">Stable read</div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-2xl font-mono font-semibold text-[#CBB9FF]">UP</span>
+              <span className="text-xs font-mono text-emerald-300">+3.8c edge</span>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-4 border border-[#403653] bg-[#050408]">
-          <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
-            <span className="text-xs uppercase tracking-[0.18em] text-[#8F7DB5]">Reference chart</span>
-            <span className="text-xs text-[#CBB9FF]">price-to-beat</span>
+        <div className="mt-4 grid lg:grid-cols-[1fr_180px] gap-3">
+          <div className="border border-[#403653] bg-[#050408]">
+            <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
+              <span className="text-xs uppercase tracking-[0.18em] text-[#8F7DB5]">Chainlink reference</span>
+              <span className="text-xs text-[#CBB9FF]">price-to-beat</span>
+            </div>
+            <div className="relative h-72 overflow-hidden">
+              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.08)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.08)_1px,transparent_1px)] bg-[size:42px_42px]" />
+              <div className="absolute left-4 top-4 z-10 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 font-mono text-sm text-white">$62,104.26</div>
+              <div className="absolute right-4 top-4 z-10 border border-[#4C3C68] bg-[#15111F]/90 px-3 py-2 text-xs uppercase tracking-[0.14em] text-[#CBB9FF]">RTDS live</div>
+              <svg viewBox="0 0 680 280" className="absolute inset-0 h-full w-full">
+                <line x1="0" y1="142" x2="680" y2="142" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.75" />
+                <path className="landing-line" d="M0 178 C60 166 96 150 150 160 C218 172 244 108 300 120 C368 134 390 88 448 104 C502 118 536 80 588 72 C632 66 650 78 680 62" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
+                <path d="M0 218 C92 206 142 218 212 194 C292 166 360 178 436 142 C520 104 594 126 680 94 L680 280 L0 280 Z" fill="rgba(111,90,153,0.18)" />
+              </svg>
+            </div>
           </div>
-          <div className="relative h-72 overflow-hidden">
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.08)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.08)_1px,transparent_1px)] bg-[size:42px_42px]" />
-            <div className="absolute left-4 top-4 z-10 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 font-mono text-sm text-white">$62,104.26</div>
-            <div className="absolute right-4 top-4 z-10 border border-[#4C3C68] bg-[#15111F]/90 px-3 py-2 text-xs uppercase tracking-[0.14em] text-[#CBB9FF]">Chainlink live</div>
-            <svg viewBox="0 0 680 280" className="absolute inset-0 h-full w-full">
-              <line x1="0" y1="142" x2="680" y2="142" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.75" />
-              <path className="landing-line" d="M0 178 C60 166 96 150 150 160 C218 172 244 108 300 120 C368 134 390 88 448 104 C502 118 536 80 588 72 C632 66 650 78 680 62" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
-              <path d="M0 218 C92 206 142 218 212 194 C292 166 360 178 436 142 C520 104 594 126 680 94 L680 280 L0 280 Z" fill="rgba(111,90,153,0.18)" />
-            </svg>
+          <div className="border border-[#403653] bg-[#0D0B12] p-3">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[#8F7DB5]">Decision tape</div>
+            <div className="mt-3 space-y-2 font-mono text-[11px] text-slate-300">
+              <div className="flex justify-between border-b border-[#2B2338] pb-2"><span>spread</span><span className="text-white">1.0c</span></div>
+              <div className="flex justify-between border-b border-[#2B2338] pb-2"><span>fee drag</span><span className="text-white">1.80%</span></div>
+              <div className="flex justify-between border-b border-[#2B2338] pb-2"><span>distance</span><span className="text-emerald-300">+0.037%</span></div>
+              <div className="flex justify-between border-b border-[#2B2338] pb-2"><span>book</span><span className="text-[#CBB9FF]">UP lean</span></div>
+              <div className="pt-2 text-[#CBB9FF]">ENTER only while edge survives the fee model.</div>
+            </div>
           </div>
         </div>
 
@@ -249,11 +270,11 @@ function Login({ onLogin, onNav }: { onLogin: (email: string, password: string) 
       <h1 className="text-3xl font-bold text-white mb-2">Welcome back</h1>
       <p className="text-slate-400 mb-8">Private PolyEngine terminal access.</p>
       <label className="block text-sm text-slate-300 mb-2">Email</label>
-      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" className="w-full mb-5 rounded-xl border border-white/10 bg-[#0B0E14] px-4 py-3 text-white outline-none focus:border-cyan-400" />
+      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" className="w-full mb-5 border border-[#403653] bg-[#08070C] px-4 py-3 text-white outline-none focus:border-[#CBB9FF]" />
       <label className="block text-sm text-slate-300 mb-2">Password</label>
-      <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className="w-full mb-6 rounded-xl border border-white/10 bg-[#0B0E14] px-4 py-3 text-white outline-none focus:border-cyan-400" />
-      <button onClick={() => onLogin(email, password)} className="w-full rounded-xl bg-cyan-300 py-3 font-bold text-slate-950 hover:bg-cyan-200 transition">Enter terminal</button>
-      <button onClick={() => onNav('/request-access')} className="mt-5 text-sm text-cyan-300 hover:text-cyan-200">Request access through Telegram</button>
+      <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" className="w-full mb-6 border border-[#403653] bg-[#08070C] px-4 py-3 text-white outline-none focus:border-[#CBB9FF]" />
+      <button onClick={() => onLogin(email, password)} className="w-full bg-[#CBB9FF] py-3 font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition">Enter terminal</button>
+      <button onClick={() => onNav('/request-access')} className="mt-5 text-sm text-[#CBB9FF] hover:text-white">Request access through Telegram</button>
     </AuthShell>
   );
 }
@@ -263,17 +284,23 @@ function RequestAccess({ onNav }: { onNav: (path: string) => void }) {
     <AuthShell>
       <h1 className="text-3xl font-bold text-white mb-2">Request access</h1>
       <p className="text-slate-400 mb-8">PolyEngine is private while the BTC 5m engine is being validated.</p>
-      <a href="https://t.me/Aesliex" target="_blank" rel="noopener noreferrer" className="block w-full rounded-xl bg-cyan-300 py-3 text-center font-bold text-slate-950 hover:bg-cyan-200 transition">Message @Aesliex</a>
-      <button onClick={() => onNav('/login')} className="mt-5 text-sm text-cyan-300 hover:text-cyan-200">Back to login</button>
+      <a href="https://t.me/Aesliex" target="_blank" rel="noopener noreferrer" className="block w-full bg-[#CBB9FF] py-3 text-center font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition">Message @Aesliex</a>
+      <button onClick={() => onNav('/login')} className="mt-5 text-sm text-[#CBB9FF] hover:text-white">Back to login</button>
     </AuthShell>
   );
 }
 
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0B0E14] bg-[radial-gradient(circle_at_50%_10%,rgba(34,211,238,0.12),transparent_30%)] flex items-center justify-center p-6">
-      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#131722]/80 backdrop-blur-xl p-8 shadow-2xl">
-        <img src="/polyengine-signal-dial.png" alt="PolyEngine" className="h-32 md:h-36 w-auto max-w-full object-contain mb-10" />
+    <div className="min-h-screen bg-[#07070A] bg-[linear-gradient(90deg,rgba(203,185,255,0.06)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.06)_1px,transparent_1px)] bg-[size:54px_54px] flex items-center justify-center p-6">
+      <div className="w-full max-w-xl border border-[#403653] bg-[#0D0B12]/95 p-8 shadow-2xl shadow-black/40">
+        <div className="mb-10 flex items-center gap-4">
+          <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-24 w-24 object-cover border border-[#4A3A6A]" loading="eager" fetchPriority="high" />
+          <div>
+            <div className="text-xl font-semibold uppercase tracking-[0.22em] text-white">PolyEngine</div>
+            <div className="mt-1 text-xs uppercase tracking-[0.24em] text-[#8F7DB5]">Private BTC 5m terminal</div>
+          </div>
+        </div>
         {children}
       </div>
     </div>
