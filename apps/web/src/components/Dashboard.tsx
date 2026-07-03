@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import PriceChart from './PriceChart';
 import PredictionCard from './PredictionCard';
@@ -212,7 +212,11 @@ export default function Dashboard() {
                   <AnimatePresence>
                     {activeTrades.length === 0 ? (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-4 text-slate-500 text-xs italic">No active trades</motion.div>
-                    ) : activeTrades.map((h) => <TradeRow key={h.id} trade={h} active />)}
+                    ) : activeTrades.map((h) => (
+                      <Fragment key={h.id}>
+                        <TradeRow trade={h} active />
+                      </Fragment>
+                    ))}
                   </AnimatePresence>
                 </div>
               </div>
@@ -227,7 +231,11 @@ export default function Dashboard() {
                 <AnimatePresence>
                   {closedTrades.length === 0 ? (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8 text-slate-600 text-sm">No resolved trades yet...</motion.div>
-                  ) : closedTrades.map((h) => <TradeRow key={h.id} trade={h} />)}
+                  ) : closedTrades.map((h) => (
+                    <Fragment key={h.id}>
+                      <TradeRow trade={h} />
+                    </Fragment>
+                  ))}
                 </AnimatePresence>
               </div>
             </div>

@@ -40,6 +40,8 @@ export default function WinStreakBox() {
   const isLosing = current < 0;
   const absStreak = Math.abs(current);
   const intensity = Math.min(absStreak / 5, 1);
+  const visibleTrades = streak.last20.slice(-16);
+  const hiddenTradeCount = Math.max(0, streak.last20.length - visibleTrades.length);
 
   return (
     <motion.div
@@ -113,21 +115,26 @@ export default function WinStreakBox() {
           <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400 font-medium">
             Last {streak.last20.length} Trades
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap justify-center min-h-[16px]">
+          <div className="flex items-center gap-1 flex-wrap justify-center min-h-[18px] max-h-[38px] overflow-hidden px-1">
             {streak.last20.length === 0 ? (
               <span className="text-xs text-slate-500 italic">No trades yet</span>
             ) : (
-              streak.last20.map((t, i) => (
+              <>
+              {hiddenTradeCount > 0 && (
+                <span className="text-[10px] leading-none text-slate-500 font-mono mr-0.5">+{hiddenTradeCount}</span>
+              )}
+              {visibleTrades.map((t, i) => (
                 <div
-                  key={i}
-                  className={`w-3 h-3 rounded-full transition-all ${
+                  key={`${t.timestamp}-${i}`}
+                  className={`w-2 h-2 rounded-full transition-all shrink-0 ${
                     t.outcome === 'WIN'
-                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
-                      : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.75)]'
+                      ? 'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.65)]'
+                      : 'bg-rose-400 shadow-[0_0_5px_rgba(251,113,133,0.65)]'
                   }`}
                   title={`${t.outcome} at ${new Date(t.timestamp).toLocaleTimeString()}`}
                 />
-              ))
+              ))}
+              </>
             )}
           </div>
         </div>

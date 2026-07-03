@@ -51,6 +51,7 @@ def clear_stale_polymarket_window() -> None:
         state.condition_id = ""
         state.best_depth_up = 0
         state.best_depth_down = 0
+        state.price_to_beat_source = "fallback"
         if old_slug:
             log("INFO", f"Rolled past expired Polymarket window {old_slug}; waiting for the next BTC 5m market.")
 
@@ -108,6 +109,7 @@ class EngineState:
     chainlink_price: float = 0.0
     chainlink_status: str = "not_configured"
     price_to_beat: float = 0.0
+    price_to_beat_source: str = "fallback"
     pm_window_start: int = 0
     pm_window_end: int = 0
     pm_event_slug: str = ""
@@ -288,7 +290,7 @@ def persist_trade(trade: Trade) -> None:
 
 
 def persist_window() -> None:
-    start, end = current_window_bounds()
+    start, end = active_window_bounds()
     with db() as con:
         con.execute(
             """
@@ -329,11 +331,18 @@ async def sync_binance() -> None:
       ]
       start, end = current_window_bounds()
       state.last_window_id = str(start)
-      start_candle = next((c for c in state.candles if abs(c["timestamp"] - start) < 60_000), None)
-      if start_candle:
-          state.price_to_beat = start_candle["open"]
-      elif not state.price_to_beat:
-          state.price_to_beat = state.current_price
+      has_live_polymarket_strike = (
+          state.price_to_beat_source == "polymarket"
+          and state.pm_window_start <= now_ms() <= state.pm_window_end + 5_000
+      )
+      if not has_live_polymarket_strike:
+          start_candle = next((c for c in state.candles if abs(c["timestamp"] - start) < 60_000), None)
+          if start_candle:
+              state.price_to_beat = start_candle["open"]
+              state.price_to_beat_source = "binance_open"
+          elif not state.price_to_beat:
+              state.price_to_beat = state.current_price
+              state.price_to_beat_source = "fallback"
     except Exception as exc:
       log("WARN", f"BTC feed degraded: {exc}")
 
@@ -411,7 +420,18 @@ async def sync_polymarket_hint() -> None:
             event = await fetch_json(f"https://gamma-api.polymarket.com/events/slug/{slug}", 8.0)
         except Exception:
             events = await fetch_json("https://gamma-api.polymarket.com/events?active=true&closed=false&limit=500&order=end_date&ascending=true", 10.0)
-            event = next((e for e in events if "btc-updown-5m" in str(e.get("slug", "")).lower()), None)
+            candidates = [e for e in events if "btc-updown-5m" in str(e.get("slug", "")).lower()]
+            now = now_ms()
+
+            def event_distance(candidate: dict) -> int:
+                candidate_market = (candidate.get("markets") or [None])[0] or {}
+                candidate_end = parse_time_ms(candidate.get("endDate") or candidate.get("end_date") or candidate_market.get("endDate") or candidate_market.get("end_date")) or now + 10**12
+                candidate_start = parse_time_ms(candidate.get("startDate") or candidate.get("start_date") or candidate_market.get("startDate") or candidate_market.get("start_date")) or candidate_end - 5 * 60 * 1000
+                if candidate_start <= now <= candidate_end + 5_000:
+                    return 0
+                return abs(candidate_start - now) + max(0, candidate_end - now)
+
+            event = min(candidates, key=event_distance, default=None)
         market = (event.get("markets") or [None])[0] if event else None
         if not market:
             return
@@ -425,6 +445,7 @@ async def sync_polymarket_hint() -> None:
         parsed_strike = parse_price_to_beat(event, market)
         if parsed_strike:
             state.price_to_beat = parsed_strike
+            state.price_to_beat_source = "polymarket"
         prices = market.get("outcomePrices") or []
         if isinstance(prices, str):
             prices = json.loads(prices)
@@ -470,19 +491,36 @@ def parse_time_ms(value) -> int | None:
 
 
 def parse_price_to_beat(event: dict, market: dict) -> float | None:
-    haystack = " ".join(str(x or "") for x in [
-        event.get("title"),
-        event.get("question"),
-        event.get("description"),
-        event.get("resolutionSource"),
-        market.get("question"),
-        market.get("description"),
-        market.get("rules"),
-    ])
     import re
-    matches = re.findall(r"\$?\b([5-9][0-9],[0-9]{3}(?:\.[0-9]+)?|[5-9][0-9]{4,5}(?:\.[0-9]+)?)\b", haystack)
+
+    direct_keys = (
+        "priceToBeat", "price_to_beat", "strikePrice", "strike_price",
+        "targetPrice", "target_price", "startPrice", "start_price",
+        "openPrice", "open_price", "referencePrice", "reference_price",
+    )
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key in direct_keys:
+                if key in value:
+                    yield str(value.get(key) or "")
+            for nested in value.values():
+                yield from walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from walk(nested)
+        elif isinstance(value, str):
+            yield value
+
+    haystack = " ".join(str(x or "") for x in walk({"event": event, "market": market}))
+    preferred = re.findall(
+        r"(?:price\s*to\s*beat|strike|target|reference|open(?:ing)?\s*price)[^\d$]{0,80}\$?\s*([5-9][0-9],[0-9]{3}(?:\.[0-9]+)?|[5-9][0-9]{4,5}(?:\.[0-9]+)?)",
+        haystack,
+        flags=re.IGNORECASE,
+    )
+    generic = re.findall(r"\$?\b([5-9][0-9],[0-9]{3}(?:\.[0-9]+)?|[5-9][0-9]{4,5}(?:\.[0-9]+)?)\b", haystack)
     candidates = []
-    for match in matches:
+    for match in preferred + generic:
         try:
             price = float(match.replace(",", ""))
             if 10_000 < price < 500_000:
