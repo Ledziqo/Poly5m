@@ -43,9 +43,9 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
   return (
     <div className="min-h-screen bg-[#07070A] text-slate-100">
       <div className="border-b border-[#403653] bg-[#08070C]/95">
-        <div className="max-w-7xl mx-auto px-5 md:px-6 h-20 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-5 md:px-6 h-24 flex items-center justify-between gap-4">
           <button onClick={() => onNav('/')} className="flex items-center" aria-label="PolyEngine home">
-            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-14 w-14 object-cover" loading="eager" fetchPriority="high" />
+            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-20 w-20 object-cover" loading="eager" fetchPriority="high" />
           </button>
           <nav className="hidden md:flex items-center gap-7 text-sm text-slate-400">
             <a href="#data" className="hover:text-white transition">Data</a>
@@ -65,8 +65,8 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
           <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#3A2A5C]/25 to-transparent" />
           <div className="relative max-w-7xl mx-auto px-5 md:px-6 py-12 md:py-16 grid lg:grid-cols-[0.96fr_1.04fr] gap-12 items-center">
             <div>
-              <div className="flex items-center gap-5 md:gap-7">
-                <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-28 w-28 md:h-40 md:w-40 object-cover shrink-0" loading="eager" fetchPriority="high" />
+              <div className="flex items-center gap-5 md:gap-8">
+                <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-36 w-36 md:h-52 md:w-52 object-cover shrink-0" loading="eager" fetchPriority="high" />
                 <div>
                   <div className="text-4xl md:text-6xl font-semibold uppercase tracking-[0.18em] text-white">PolyEngine</div>
                   <div className="mt-3 text-sm md:text-lg font-semibold uppercase tracking-[0.28em] text-[#CBB9FF]">BTC 5m terminal</div>
@@ -97,7 +97,24 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
                 <button onClick={() => onNav('/login')} className="h-12 px-5 bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition shadow-[0_0_28px_rgba(143,125,181,0.18)]">Open terminal</button>
                 <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-[#4C3C68] bg-[#15111F] text-sm font-semibold text-white hover:bg-[#211A31] transition">Request access</button>
               </div>
+              <p className="mt-5 max-w-xl text-sm leading-6 text-slate-500">
+                Private product for approved users only. New access is handled manually through Telegram while the engine stays in controlled validation.
+              </p>
             </div>
+          </div>
+        </section>
+
+        <section className="border-b border-[#403653] bg-[#09080D]">
+          <div className="max-w-7xl mx-auto px-5 md:px-6 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+            <div>
+              <div className="text-xs uppercase tracking-[0.22em] text-[#BBA6F1]">Private access only</div>
+              <p className="mt-2 max-w-3xl text-lg leading-8 text-slate-300">
+                PolyEngine is not public yet. Request access in Telegram and we will approve accounts manually while the BTC 5m terminal is being refined.
+              </p>
+            </div>
+            <a href="https://t.me/Aesliex" target="_blank" rel="noopener noreferrer" className="h-12 shrink-0 px-5 inline-flex items-center justify-center bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-white transition">
+              Request on Telegram
+            </a>
           </div>
         </section>
 
@@ -182,20 +199,33 @@ function SourceBlock({ label, value, detail }: { label: string; value: string; d
 
 function ProductPreview() {
   return (
-    <div className="mt-8 border border-[#403653] bg-[#08070C]/95 shadow-2xl shadow-black/35">
+    <div className="mt-8 border border-[#403653] bg-[#08070C]/95 shadow-2xl shadow-black/35 overflow-hidden">
       <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
-        <span className="text-[10px] uppercase tracking-[0.22em] text-[#8F7DB5]">Live terminal preview</span>
-        <span className="font-mono text-xs text-[#CBB9FF]">BTC 5m</span>
+        <span className="text-[10px] uppercase tracking-[0.22em] text-[#8F7DB5]">BTC 5m execution terminal</span>
+        <span className="font-mono text-xs text-emerald-300">LIVE MARKET</span>
       </div>
       <div className="grid md:grid-cols-[1.2fr_0.8fr] gap-0">
-        <div className="relative h-56 border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
+        <div className="relative h-64 border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.07)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.07)_1px,transparent_1px)] bg-[size:36px_36px]" />
-          <div className="absolute left-4 top-4 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 font-mono text-sm text-white">$62,104.26</div>
-          <svg viewBox="0 0 520 220" className="absolute inset-0 h-full w-full">
-            <line x1="0" y1="116" x2="520" y2="116" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.72" />
-            <path className="landing-line" d="M0 154 C44 140 76 144 112 128 C162 104 196 130 238 110 C294 84 326 96 368 74 C422 46 468 72 520 44" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
-            <path d="M0 186 C78 178 132 184 196 158 C270 128 338 138 412 96 C462 70 492 82 520 62 L520 220 L0 220 Z" fill="rgba(111,90,153,0.18)" />
+          <div className="absolute left-4 top-4 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-[#8F7DB5]">Reference price</div>
+            <div className="font-mono text-sm text-white">$62,104.26</div>
+          </div>
+          <div className="absolute right-4 top-4 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 text-right">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-[#8F7DB5]">Price to beat</div>
+            <div className="font-mono text-sm text-[#CBB9FF]">$62,083.10</div>
+          </div>
+          <svg viewBox="0 0 520 250" className="absolute inset-0 h-full w-full">
+            <line x1="0" y1="132" x2="520" y2="132" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.72" />
+            <line x1="386" y1="0" x2="386" y2="250" stroke="#E879F9" strokeDasharray="5 8" opacity="0.44" />
+            <path className="landing-line" d="M0 172 C40 150 74 166 112 134 C160 96 198 142 238 112 C286 76 328 102 370 74 C420 40 470 80 520 48" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
+            <path d="M0 210 C70 194 128 202 190 168 C260 130 330 146 404 98 C458 66 492 82 520 62 L520 250 L0 250 Z" fill="rgba(111,90,153,0.18)" />
           </svg>
+          <div className="absolute left-4 bottom-4 right-4 grid grid-cols-3 gap-2">
+            <PreviewPill label="Round" value="07:45 AM" />
+            <PreviewPill label="Cutoff" value="02:00" />
+            <PreviewPill label="Bias" value="UP 63%" />
+          </div>
         </div>
         <div className="p-4">
           <div className="grid grid-cols-2 gap-3">
@@ -209,11 +239,29 @@ function ProductPreview() {
             </div>
             <div className="mt-2 text-xs text-slate-500">Bid 56.0c / Ask 57.0c</div>
           </div>
-          <div className="mt-3 text-xs leading-5 text-slate-400">
-            Price, timer, and odds pinned to Polymarket market data.
+          <div className="mt-3 border border-[#403653] bg-[#0D0B12] p-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">DOWN</span>
+              <span className="font-mono text-slate-200">43.5c</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-500">Bid 43.0c / Ask 44.0c</div>
+          </div>
+          <div className="mt-3 space-y-2 font-mono text-[11px] leading-5">
+            <div className="flex justify-between border-t border-[#403653] pt-2"><span className="text-slate-500">signal</span><span className="text-emerald-300">entry allowed</span></div>
+            <div className="flex justify-between border-t border-[#403653] pt-2"><span className="text-slate-500">fee drag</span><span className="text-slate-300">0.36</span></div>
+            <div className="flex justify-between border-t border-[#403653] pt-2"><span className="text-slate-500">source</span><span className="text-[#CBB9FF]">Polymarket</span></div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PreviewPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#403653] bg-[#08070C]/85 px-2 py-2">
+      <div className="text-[8px] uppercase tracking-[0.18em] text-[#8F7DB5]">{label}</div>
+      <div className="mt-1 truncate font-mono text-xs text-white">{value}</div>
     </div>
   );
 }
