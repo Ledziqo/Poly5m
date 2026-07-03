@@ -41,141 +41,117 @@ export default function App() {
 
 function Landing({ onNav }: { onNav: (path: string) => void }) {
   return (
-    <div className="min-h-screen bg-[#05070C] text-white overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(34,211,238,0.16),transparent_25%),radial-gradient(circle_at_78%_16%,rgba(236,72,153,0.13),transparent_28%),radial-gradient(circle_at_52%_78%,rgba(139,92,246,0.12),transparent_34%),linear-gradient(90deg,rgba(255,255,255,0.026)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.026)_1px,transparent_1px)] bg-[size:auto,auto,auto,70px_70px,70px_70px]" />
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-transparent" />
-      <div className="relative max-w-7xl mx-auto px-5 md:px-6 py-7">
-        <header className="flex items-center justify-between gap-4">
-          <img src="/polyengine-signal-dial.png" alt="PolyEngine" className="h-20 md:h-28 w-auto object-contain drop-shadow-[0_0_28px_rgba(34,211,238,0.20)]" />
-          <nav className="hidden md:flex items-center gap-8 text-sm text-slate-400">
-            <a href="#brain" className="hover:text-cyan-200 transition">Brain</a>
-            <a href="#signals" className="hover:text-cyan-200 transition">Signals</a>
-            <a href="#simulator" className="hover:text-cyan-200 transition">Simulator</a>
+    <div className="min-h-screen bg-[#070A0F] text-slate-100">
+      <div className="border-b border-white/10 bg-[#070A0F]/95">
+        <div className="max-w-7xl mx-auto px-5 md:px-6 h-20 flex items-center justify-between gap-4">
+          <button onClick={() => onNav('/')} className="flex items-center gap-3">
+            <img src="/polyengine-icon.png" alt="PolyEngine" className="h-9 w-9 rounded-md object-contain" />
+            <div className="text-left">
+              <div className="text-sm font-semibold tracking-wide text-white">PolyEngine</div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">BTC 5m terminal</div>
+            </div>
+          </button>
+          <nav className="hidden md:flex items-center gap-7 text-sm text-slate-400">
+            <a href="#data" className="hover:text-white transition">Data</a>
+            <a href="#process" className="hover:text-white transition">Process</a>
+            <a href="#audit" className="hover:text-white transition">Audit</a>
           </nav>
-          <div className="flex items-center gap-3">
-            <button onClick={() => onNav('/login')} className="rounded-full border border-white/10 px-5 py-2 text-sm text-slate-200 hover:border-cyan-400/40 transition">Login</button>
-            <button onClick={() => onNav('/request-access')} className="rounded-full bg-cyan-300 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-200 transition">Request access</button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => onNav('/login')} className="h-10 px-4 border border-white/12 bg-white/[0.03] text-sm font-medium text-slate-200 hover:bg-white/[0.06] transition">Login</button>
+            <button onClick={() => onNav('/request-access')} className="h-10 px-4 bg-white text-sm font-semibold text-[#070A0F] hover:bg-slate-200 transition">Request access</button>
           </div>
-        </header>
+        </div>
+      </div>
 
-        <main className="grid lg:grid-cols-[0.92fr_1.08fr] gap-10 xl:gap-14 items-center pt-12 md:pt-16">
-          <section>
-            <div className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-cyan-200 text-sm mb-6 shadow-[0_0_24px_rgba(34,211,238,0.10)]">
-              Private BTC 5-minute execution brain for Polymarket
+      <main>
+        <section className="border-b border-white/10">
+          <div className="max-w-7xl mx-auto px-5 md:px-6 py-12 md:py-16 grid lg:grid-cols-[0.82fr_1.18fr] gap-10 items-start">
+            <div className="pt-2">
+              <div className="inline-flex border border-emerald-400/20 bg-emerald-400/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                Private live paper engine
+              </div>
+              <h1 className="mt-6 text-4xl md:text-6xl font-semibold leading-[1.02] tracking-tight text-white">
+                Bitcoin 5-minute Polymarket execution, measured tick by tick.
+              </h1>
+              <p className="mt-6 max-w-xl text-base md:text-lg leading-8 text-slate-400">
+                A focused cockpit for the BTC Up/Down 5m market: Polymarket Chainlink price, live CLOB odds, round timer, simulated fills, and a full decision log in one place.
+              </p>
+              <div className="mt-8 grid grid-cols-3 border border-white/10 divide-x divide-white/10 max-w-xl">
+                <LandingMetric value="RTDS" label="price feed" />
+                <LandingMetric value="CLOB" label="odds source" />
+                <LandingMetric value="2:00" label="entry close" />
+              </div>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <button onClick={() => onNav('/login')} className="h-12 px-5 bg-cyan-300 text-sm font-bold text-slate-950 hover:bg-cyan-200 transition">Open terminal</button>
+                <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-white/12 bg-white/[0.03] text-sm font-semibold text-white hover:bg-white/[0.06] transition">Request access</button>
+              </div>
             </div>
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight leading-[0.94] max-w-3xl">
-              Trade the shortest Bitcoin window with a calmer machine.
-            </h1>
-            <p className="mt-6 text-lg text-slate-300 leading-8 max-w-2xl">
-              PolyEngine watches live BTC ticks, Polymarket Up/Down odds, order-book pressure, fees, volatility, price-to-beat distance, and time decay, then builds a stable decision instead of reacting to every tiny move.
-            </p>
-            <div className="mt-8 grid grid-cols-3 gap-3 max-w-2xl">
-              <LandingMetric value="0.1s" label="live stream" />
-              <LandingMetric value="2:00" label="entry cutoff" />
-              <LandingMetric value="1.8%" label="fee model" />
-            </div>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <button onClick={() => onNav('/request-access')} className="rounded-xl bg-cyan-300 px-6 py-3 font-bold text-slate-950 hover:bg-cyan-200 transition shadow-[0_0_28px_rgba(34,211,238,0.20)]">Request access</button>
-              <button onClick={() => onNav('/login')} className="rounded-xl border border-white/10 px-6 py-3 font-bold text-white hover:border-purple-400/40 transition">Open terminal</button>
-            </div>
-          </section>
 
-          <section className="rounded-3xl border border-white/10 bg-[#101522]/85 backdrop-blur-xl p-5 md:p-6 shadow-2xl shadow-cyan-500/10 relative overflow-hidden">
-            <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-            <div className="absolute -bottom-28 left-16 h-72 w-72 rounded-full bg-fuchsia-500/10 blur-3xl" />
-            <div className="relative">
-              <div className="flex items-center justify-between gap-4 mb-5">
-                <div>
-                  <div className="text-[11px] uppercase tracking-[0.32em] text-cyan-200/80">Live decision cockpit</div>
-                  <h2 className="mt-2 text-2xl font-bold">BTC 5m signal window</h2>
-                </div>
-                <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-bold text-emerald-300">STREAMING</div>
-              </div>
-              <div className="grid grid-cols-3 gap-3 mb-5">
-                <PreviewStat label="Countdown" value="02:37" tone="red" />
-                <PreviewStat label="Brain" value="DOWN" tone="pink" />
-                <PreviewStat label="Bias" value="+0.42" tone="green" />
-              </div>
-              <div className="h-72 rounded-2xl border border-white/10 bg-[#080C13] relative overflow-hidden">
-                <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:48px_48px]" />
-                <div className="absolute left-5 top-4 z-10 rounded-lg border border-white/10 bg-black/45 px-3 py-2 font-mono text-sm text-white">$61,276.06</div>
-                <div className="absolute right-5 top-4 z-10 rounded-lg border border-pink-400/20 bg-pink-400/10 px-3 py-2 text-xs text-pink-200">price-to-beat line</div>
-                <svg viewBox="0 0 600 240" className="absolute inset-0 h-full w-full">
-                  <path className="landing-line" d="M0 168 C70 150 118 170 178 146 C235 122 280 72 334 104 C388 138 430 122 476 92 C530 58 556 82 600 52" fill="none" stroke="#a78bfa" strokeWidth="5" />
-                  <path d="M0 170 C70 152 118 172 178 148 C235 124 280 74 334 106 C388 140 430 124 476 94 C530 60 556 84 600 54" fill="none" stroke="#22d3ee" strokeWidth="1.5" opacity="0.9" />
-                  <line x1="0" y1="124" x2="600" y2="124" stroke="#f472b6" strokeDasharray="8 8" opacity="0.75" />
-                </svg>
-              </div>
-              <div className="mt-5 grid md:grid-cols-2 gap-4">
-                <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
-                  <div className="flex justify-between"><span className="text-blue-300 font-bold">UP</span><span className="font-mono text-white">69.5c</span></div>
-                  <div className="text-xs text-slate-500 mt-1">Bid 68.5c / Ask 70.5c</div>
-                </div>
-                <div className="rounded-xl border border-pink-500/30 bg-pink-500/10 p-4">
-                  <div className="flex justify-between"><span className="text-pink-300 font-bold">DOWN</span><span className="font-mono text-white">30.5c</span></div>
-                  <div className="text-xs text-slate-500 mt-1">Stable side selected by the bot</div>
-                </div>
-              </div>
-              <div className="mt-4 rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 text-sm text-slate-300">
-                Autonomous brain held DOWN through a weak UP twitch. EMA slope is fading, VWAP distance is negative, and fee-adjusted edge remains positive.
-              </div>
-            </div>
-          </section>
-        </main>
-
-        <section id="brain" className="py-20">
-          <div className="mb-8 max-w-3xl">
-            <div className="text-sm uppercase tracking-[0.28em] text-cyan-300">How it thinks</div>
-            <h2 className="mt-3 text-3xl md:text-5xl font-extrabold">Not a blinking signal. A decision system.</h2>
-            <p className="mt-4 text-slate-400 leading-7">The bot blends raw indicators with memory and autonomous signal stability. It can wait, hold a bias through noise, and explain exactly why it refuses to enter or flip sides.</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-5">
-            <FeatureCard title="Signal memory" text="Each window keeps a smoothed Up/Down bias so one tick cannot instantly reverse the decision." />
-            <FeatureCard title="Autonomous stability" text="The brain smooths noisy ticks and changes sides only when the signal is strong enough, reducing nervous flip-flopping without needing you there." />
-            <FeatureCard title="Trade review loop" text="Recent win/loss behavior influences confidence so the engine becomes more cautious after weak sequences." />
+            <TerminalPreview />
           </div>
         </section>
 
-        <section id="signals" className="grid lg:grid-cols-2 gap-5 pb-20">
-          <FeaturePanel title="Inputs the bot watches" items={["BTC tick stream and live chart pressure", "Polymarket Up/Down bid, ask, spread, and depth", "EMA slope, VWAP distance, RSI, acceleration, volatility", "Price-to-beat distance, time left, and 2-minute cutoff", "Fee-adjusted fair value and expected edge"]} />
-          <FeaturePanel title="What the terminal shows" items={["Live decision: Up, Down, or Wait", "Plain-English reasoning for every trade/no-trade", "Active trade, resolved history, PnL, win rate, streaks", "Real-time system log of the bot's thought process", "Settings for starting balance, stake, fee, risk, and reset"]} />
+        <section id="data" className="border-b border-white/10 bg-[#0B0F15]">
+          <div className="max-w-7xl mx-auto px-5 md:px-6 py-12 grid lg:grid-cols-[0.72fr_1.28fr] gap-8">
+            <div>
+              <div className="text-xs uppercase tracking-[0.22em] text-cyan-300">Data contract</div>
+              <h2 className="mt-3 text-3xl font-semibold text-white">Built around the same market inputs you verify on Polymarket.</h2>
+            </div>
+            <div className="grid md:grid-cols-3 gap-3">
+              <SourceBlock label="Current price" value="Polymarket Chainlink BTC/USD" detail="RTDS crypto_prices_chainlink stream" />
+              <SourceBlock label="Timer" value="Event start/end" detail="Gamma market eventStartTime and endDate" />
+              <SourceBlock label="Odds" value="Gamma + CLOB" detail="Outcome prices plus live bid/ask book" />
+            </div>
+          </div>
         </section>
 
-        <section id="simulator" className="pb-20">
-          <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-cyan-400/10 via-[#111621]/90 to-fuchsia-500/10 p-6 md:p-8">
-            <div className="grid lg:grid-cols-[0.8fr_1.2fr] gap-8 items-center">
-              <div>
-                <div className="text-sm uppercase tracking-[0.28em] text-cyan-300">1:1 simulator first</div>
-                <h2 className="mt-3 text-3xl md:text-5xl font-extrabold">Test the same decisions before capital goes live.</h2>
-              </div>
-              <p className="text-slate-300 leading-8">
-                PolyEngine is built around discipline: simulated fills include taker fee, entry price, price-to-beat, shares, and window resolution. The goal is not to scream every signal; it is to make fewer, clearer decisions with a full audit trail.
+        <section id="process" className="max-w-7xl mx-auto px-5 md:px-6 py-14">
+          <div className="grid lg:grid-cols-[0.88fr_1.12fr] gap-8 items-start">
+            <div>
+              <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Operating model</div>
+              <h2 className="mt-3 text-3xl md:text-4xl font-semibold text-white">No generic signals. Just the current round, the price to beat, and whether edge survives fees.</h2>
+              <p className="mt-5 text-slate-400 leading-7">
+                The terminal keeps the workflow narrow because this market is narrow. Every decision is tied to one five-minute window and the same displayed market data.
               </p>
             </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <FeatureCard title="Window-aware" text="The engine stops new entries at the 2-minute mark and resolves positions on the Polymarket round boundary." />
+              <FeatureCard title="Order-book aware" text="Up and Down sides use real Polymarket bid/ask levels so simulated entries are not based on invented spreads." />
+              <FeatureCard title="Fee-aware" text="Expected edge is measured after taker-fee drag, not just raw probability." />
+              <FeatureCard title="Human-readable" text="Every trade and wait decision includes the reason, confidence, and active market context." />
+            </div>
           </div>
         </section>
-      </div>
+
+        <section id="audit" className="border-t border-white/10 bg-[#0B0F15]">
+          <div className="max-w-7xl mx-auto px-5 md:px-6 py-14 grid lg:grid-cols-3 gap-4">
+            <FeaturePanel title="Live cockpit" items={["Current Polymarket BTC 5m event link", "Price to beat and current reference", "Up/Down midpoint odds and CLOB bid/ask", "Resolution timer synced from market data"]} />
+            <FeaturePanel title="Paper execution" items={["Active position mark value", "Stake, shares, entry price, and fee paid", "Resolved win/loss history", "PnL, win rate, and streak tracking"]} />
+            <FeaturePanel title="Decision audit" items={["Signal bias and confidence", "Momentum and distance checks", "Fee-adjusted edge comparison", "System log stream for every action"]} />
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
 
 function LandingMetric({ value, label }: { value: string; label: string }) {
-  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-2xl font-mono font-bold text-white">{value}</div><div className="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">{label}</div></div>;
+  return <div className="p-4"><div className="text-xl md:text-2xl font-mono font-semibold text-white">{value}</div><div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mt-1">{label}</div></div>;
 }
 
 function FeatureCard({ title, text }: { title: string; text: string }) {
-  return <div className="rounded-2xl border border-white/10 bg-[#111621]/70 p-6 shadow-xl shadow-black/20"><h3 className="font-bold text-white text-lg mb-3">{title}</h3><p className="text-slate-400 leading-7">{text}</p></div>;
+  return <div className="border border-white/10 bg-white/[0.025] p-5"><h3 className="font-semibold text-white text-lg mb-3">{title}</h3><p className="text-sm text-slate-400 leading-6">{text}</p></div>;
 }
 
 function FeaturePanel({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#111621]/70 p-6 md:p-8 shadow-xl shadow-black/20">
-      <h3 className="text-2xl font-bold text-white mb-5">{title}</h3>
-      <div className="space-y-3">
+    <div className="border border-white/10 bg-[#080C12] p-5">
+      <h3 className="text-xl font-semibold text-white mb-5">{title}</h3>
+      <div className="space-y-2">
         {items.map((item) => (
-          <div key={item} className="flex gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 text-slate-300">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.8)]" />
-            <span>{item}</span>
+          <div key={item} className="flex gap-3 border-t border-white/10 pt-3 text-sm text-slate-300 first:border-t-0 first:pt-0">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 bg-cyan-300" />
+            <span className="leading-6">{item}</span>
           </div>
         ))}
       </div>
@@ -185,7 +161,71 @@ function FeaturePanel({ title, items }: { title: string; items: string[] }) {
 
 function PreviewStat({ label, value, tone }: { label: string; value: string; tone: 'red' | 'pink' | 'green' }) {
   const color = tone === 'red' ? 'text-red-400' : tone === 'pink' ? 'text-pink-400' : 'text-emerald-400';
-  return <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><div className="text-xs text-slate-500 mb-2">{label}</div><div className={`text-2xl font-mono font-bold ${color}`}>{value}</div></div>;
+  return <div className="border border-white/10 bg-white/[0.025] p-3"><div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">{label}</div><div className={`text-xl font-mono font-semibold ${color}`}>{value}</div></div>;
+}
+
+function SourceBlock({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="border border-white/10 bg-[#070A0F] p-5">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-3 text-base font-semibold text-white">{value}</div>
+      <div className="mt-2 text-sm leading-6 text-slate-500">{detail}</div>
+    </div>
+  );
+}
+
+function TerminalPreview() {
+  return (
+    <div className="border border-white/10 bg-[#090D13] shadow-2xl shadow-black/30">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <span className="h-2.5 w-2.5 bg-emerald-400" />
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-400">Live market view</span>
+        </div>
+        <span className="text-xs font-mono text-slate-500">btc-updown-5m</span>
+      </div>
+      <div className="p-4 md:p-5">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <PreviewStat label="Timer" value="01:48" tone="red" />
+          <PreviewStat label="To beat" value="$62,081" tone="green" />
+          <PreviewStat label="Current" value="$62,104" tone="green" />
+          <PreviewStat label="Decision" value="UP" tone="green" />
+        </div>
+
+        <div className="mt-4 border border-white/10 bg-[#05080D]">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Reference chart</span>
+            <span className="text-xs text-pink-300">price-to-beat</span>
+          </div>
+          <div className="relative h-72 overflow-hidden">
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:42px_42px]" />
+            <svg viewBox="0 0 680 280" className="absolute inset-0 h-full w-full">
+              <line x1="0" y1="142" x2="680" y2="142" stroke="#f472b6" strokeDasharray="7 7" opacity="0.75" />
+              <path className="landing-line" d="M0 178 C60 166 96 150 150 160 C218 172 244 108 300 120 C368 134 390 88 448 104 C502 118 536 80 588 72 C632 66 650 78 680 62" fill="none" stroke="#22d3ee" strokeWidth="2" />
+              <path d="M0 218 C92 206 142 218 212 194 C292 166 360 178 436 142 C520 104 594 126 680 94 L680 280 L0 280 Z" fill="rgba(34,211,238,0.08)" />
+            </svg>
+          </div>
+        </div>
+
+        <div className="mt-4 grid md:grid-cols-2 gap-3">
+          <div className="border border-blue-400/20 bg-blue-400/5 p-4">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-blue-300">UP</span>
+              <span className="font-mono text-white">56.5c</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-500">Bid 56.0c / Ask 57.0c</div>
+          </div>
+          <div className="border border-pink-400/20 bg-pink-400/5 p-4">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-pink-300">DOWN</span>
+              <span className="font-mono text-white">43.5c</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-500">Bid 43.0c / Ask 44.0c</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Login({ onLogin, onNav }: { onLogin: (email: string, password: string) => void; onNav: (path: string) => void }) {
