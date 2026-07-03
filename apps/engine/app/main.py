@@ -52,6 +52,7 @@ def clear_stale_polymarket_window() -> None:
         state.best_depth_up = 0
         state.best_depth_down = 0
         state.price_to_beat_source = "fallback"
+        state.price_to_beat_window_id = ""
         if old_slug:
             log("INFO", f"Rolled past expired Polymarket window {old_slug}; waiting for the next BTC 5m market.")
 
@@ -110,6 +111,7 @@ class EngineState:
     chainlink_status: str = "not_configured"
     price_to_beat: float = 0.0
     price_to_beat_source: str = "fallback"
+    price_to_beat_window_id: str = ""
     pm_window_start: int = 0
     pm_window_end: int = 0
     pm_event_slug: str = ""
@@ -314,28 +316,32 @@ async def sync_binance() -> None:
           fetch_json("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"),
           fetch_json("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=90"),
       )
-      state.indicator_price = float(ticker["price"])
-      if REFERENCE_MODE == "binance" or state.chainlink_status != "live":
+      fallback_price = float(ticker["price"])
+      if state.chainlink_status != "live":
+          state.indicator_price = fallback_price
+      if state.chainlink_status != "live" and (REFERENCE_MODE == "binance" or not state.current_price):
           state.current_price = state.indicator_price
           state.reference_source = "Binance BTCUSDT WebSocket"
-      state.candles = [
-          {
-              "timestamp": int(k[0]),
-              "open": float(k[1]),
-              "high": float(k[2]),
-              "low": float(k[3]),
-              "close": float(k[4]),
-              "volume": float(k[5]),
-          }
-          for k in klines
-      ]
+      if state.chainlink_status != "live":
+          state.candles = [
+              {
+                  "timestamp": int(k[0]),
+                  "open": float(k[1]),
+                  "high": float(k[2]),
+                  "low": float(k[3]),
+                  "close": float(k[4]),
+                  "volume": float(k[5]),
+              }
+              for k in klines
+          ]
       start, end = current_window_bounds()
       state.last_window_id = str(start)
       has_live_polymarket_strike = (
           state.price_to_beat_source == "polymarket"
           and state.pm_window_start <= now_ms() <= state.pm_window_end + 5_000
       )
-      if not has_live_polymarket_strike:
+      has_live_chainlink_reference = state.chainlink_status == "live" and state.current_price > 0
+      if not has_live_polymarket_strike and not has_live_chainlink_reference:
           start_candle = next((c for c in state.candles if abs(c["timestamp"] - start) < 60_000), None)
           if start_candle:
               state.price_to_beat = start_candle["open"]
@@ -380,8 +386,9 @@ async def sync_chainlink_reference() -> None:
     """
     url = os.getenv("CHAINLINK_BTC_USD_URL", "").strip()
     if REFERENCE_MODE == "binance":
-        state.chainlink_status = "disabled"
-        state.reference_source = "Binance BTCUSDT WebSocket"
+        if state.chainlink_status != "live":
+            state.chainlink_status = "waiting_for_polymarket"
+            state.reference_source = "Waiting for Polymarket Chainlink BTC/USD"
         return
     if not url:
         state.chainlink_status = "not_configured"
@@ -411,6 +418,92 @@ async def sync_chainlink_reference() -> None:
         log("WARN", f"Chainlink/reference sync degraded: {exc}")
 
 
+def apply_polymarket_chainlink_price(price: float, timestamp_ms: int | None = None) -> None:
+    timestamp_ms = timestamp_ms or now_ms()
+    state.chainlink_price = price
+    state.current_price = price
+    state.indicator_price = price
+    state.chainlink_status = "live"
+    state.reference_source = "Polymarket Chainlink BTC/USD"
+    update_reference_candle(price, timestamp_ms)
+    maybe_capture_price_to_beat(price, timestamp_ms)
+
+
+def update_reference_candle(price: float, timestamp_ms: int) -> None:
+    minute = (timestamp_ms // 60_000) * 60_000
+    if state.candles and state.candles[-1]["timestamp"] == minute:
+        candle = state.candles[-1]
+        candle["high"] = max(candle["high"], price)
+        candle["low"] = min(candle["low"], price)
+        candle["close"] = price
+    else:
+        state.candles.append({
+            "timestamp": minute,
+            "open": price,
+            "high": price,
+            "low": price,
+            "close": price,
+            "volume": 0.0,
+        })
+        state.candles = state.candles[-180:]
+
+
+def maybe_capture_price_to_beat(price: float, timestamp_ms: int) -> None:
+    if not state.pm_window_start or not state.pm_window_end:
+        return
+    window_id = str(state.pm_window_start)
+    if state.price_to_beat_source == "polymarket" and state.price_to_beat_window_id == window_id:
+        return
+    if state.pm_window_start - 1_000 <= timestamp_ms <= state.pm_window_start + 12_000:
+        state.price_to_beat = price
+        state.price_to_beat_source = "polymarket"
+        state.price_to_beat_window_id = window_id
+        log("INFO", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} for {state.pm_event_slug or window_id}.")
+
+
+async def polymarket_rtds_loop() -> None:
+    subscribe = {
+        "action": "subscribe",
+        "subscriptions": [
+            {
+                "topic": "crypto_prices_chainlink",
+                "type": "*",
+                "filters": "{\"symbol\":\"btc/usd\"}",
+            }
+        ],
+    }
+    while True:
+        try:
+            async with websockets.connect("wss://ws-live-data.polymarket.com", ping_interval=None, ping_timeout=None) as ws:
+                await ws.send(json.dumps(subscribe))
+                log("INFO", "Polymarket Chainlink BTC/USD stream connected.")
+                last_ping = time.time()
+                async for raw in ws:
+                    if time.time() - last_ping >= 5:
+                        await ws.send("PING")
+                        last_ping = time.time()
+                    try:
+                        msg = json.loads(raw)
+                    except Exception:
+                        continue
+                    payload = msg.get("payload") if isinstance(msg, dict) else None
+                    if not isinstance(payload, dict):
+                        continue
+                    symbol = str(payload.get("symbol") or "").lower()
+                    if symbol != "btc/usd":
+                        continue
+                    value = payload.get("value") or payload.get("full_accuracy_value")
+                    if value is None:
+                        continue
+                    price = float(value)
+                    ts = int(payload.get("timestamp") or msg.get("timestamp") or now_ms())
+                    apply_polymarket_chainlink_price(price, ts)
+        except Exception as exc:
+            state.chainlink_status = "degraded" if state.chainlink_price else state.chainlink_status
+            log("WARN", f"Polymarket Chainlink stream reconnecting: {exc}")
+            await asyncio.sleep(3)
+
+
 async def sync_polymarket_hint() -> None:
     try:
         start, _ = current_window_bounds()
@@ -426,7 +519,14 @@ async def sync_polymarket_hint() -> None:
             def event_distance(candidate: dict) -> int:
                 candidate_market = (candidate.get("markets") or [None])[0] or {}
                 candidate_end = parse_time_ms(candidate.get("endDate") or candidate.get("end_date") or candidate_market.get("endDate") or candidate_market.get("end_date")) or now + 10**12
-                candidate_start = parse_time_ms(candidate.get("startDate") or candidate.get("start_date") or candidate_market.get("startDate") or candidate_market.get("start_date")) or candidate_end - 5 * 60 * 1000
+                candidate_start = parse_time_ms(
+                    candidate_market.get("eventStartTime")
+                    or candidate.get("eventStartTime")
+                    or candidate_market.get("marketStartTime")
+                    or candidate.get("marketStartTime")
+                    or candidate_market.get("startTime")
+                    or candidate.get("startTime")
+                ) or candidate_end - 5 * 60 * 1000
                 if candidate_start <= now <= candidate_end + 5_000:
                     return 0
                 return abs(candidate_start - now) + max(0, candidate_end - now)
@@ -435,17 +535,30 @@ async def sync_polymarket_hint() -> None:
         market = (event.get("markets") or [None])[0] if event else None
         if not market:
             return
+        previous_slug = state.pm_event_slug
         state.pm_event_slug = str(event.get("slug") or slug)
         event_end = parse_time_ms(event.get("endDate") or event.get("end_date") or market.get("endDate") or market.get("end_date"))
-        event_start = parse_time_ms(event.get("startDate") or event.get("start_date") or market.get("startDate") or market.get("start_date"))
+        event_start = parse_time_ms(
+            market.get("eventStartTime")
+            or event.get("eventStartTime")
+            or market.get("marketStartTime")
+            or event.get("marketStartTime")
+            or market.get("startTime")
+            or event.get("startTime")
+        )
         if event_end:
             state.pm_window_end = event_end
             state.pm_window_start = event_start or event_end - 5 * 60 * 1000
+        if previous_slug and previous_slug != state.pm_event_slug:
+            state.price_to_beat = 0
+            state.price_to_beat_source = "fallback"
+            state.price_to_beat_window_id = ""
         parse_market_tokens(market)
         parsed_strike = parse_price_to_beat(event, market)
         if parsed_strike:
             state.price_to_beat = parsed_strike
             state.price_to_beat_source = "polymarket"
+            state.price_to_beat_window_id = str(state.pm_window_start or "")
         prices = market.get("outcomePrices") or []
         if isinstance(prices, str):
             prices = json.loads(prices)
@@ -1075,8 +1188,9 @@ async def binance_ws_loop() -> None:
                     msg = json.loads(raw)
                     price = float(msg.get("p", 0) or 0)
                     if price:
-                        state.indicator_price = price
-                        if REFERENCE_MODE == "binance":
+                        if state.chainlink_status != "live":
+                            state.indicator_price = price
+                        if REFERENCE_MODE == "binance" and state.chainlink_status != "live":
                             state.current_price = price
                             state.reference_source = "Binance BTCUSDT WebSocket"
         except Exception as exc:
@@ -1089,6 +1203,7 @@ async def startup() -> None:
     load_persistent_state()
     asyncio.create_task(worker_loop())
     asyncio.create_task(binance_ws_loop())
+    asyncio.create_task(polymarket_rtds_loop())
 
 
 @app.get("/api/health")

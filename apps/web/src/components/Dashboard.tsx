@@ -12,7 +12,6 @@ import { formatET, formatLocalTime } from '../utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { Candle, DashboardPayload, getCandles, getDashboard, getHistory, LiveStreamPayload, LogEntry, Trade } from '../api';
-import { useBinancePrice } from '../hooks/useBinancePrice';
 
 const emptyDashboard: DashboardPayload = {
   settings: {
@@ -52,7 +51,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const prevOpenTradeRef = useRef<string | null>(null);
-  const { price: livePrice } = useBinancePrice();
 
   const fetchData = async () => {
     try {
@@ -184,13 +182,13 @@ export default function Dashboard() {
           </motion.div>
 
           <WinStreakBox />
-          <PredictionCard window={data.window ? { ...data.window, current_price: livePrice || data.window.current_price } : null} decision={data.decision} activeTrade={data.active_trade} />
+          <PredictionCard window={data.window} decision={data.decision} activeTrade={data.active_trade} />
         </div>
 
         <div className="lg:col-span-2 flex flex-col gap-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2">
-              <PriceChart data={candles} currentPrice={livePrice || data.window?.current_price || null} priceToBeat={data.window?.price_to_beat || null} />
+              <PriceChart data={candles} currentPrice={data.window?.current_price || null} priceToBeat={data.window?.price_to_beat || null} />
             </div>
             <div className="md:col-span-1">
               <ResolutionTimer targetTimestamp={data.window?.window_end || null} />
