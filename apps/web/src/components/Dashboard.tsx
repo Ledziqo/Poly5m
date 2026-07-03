@@ -8,7 +8,7 @@ import ResolutionTimer from './ResolutionTimer';
 import SystemLogs from './SystemLogs';
 import WinStreakBox from './WinStreakBox';
 import { Activity, RefreshCw, TrendingUp, Wallet, AlertCircle } from 'lucide-react';
-import { formatET } from '../utils';
+import { formatET, formatLocalTime } from '../utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { Candle, DashboardPayload, getCandles, getDashboard, getHistory, LiveStreamPayload, LogEntry, Trade } from '../api';
@@ -271,6 +271,8 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
       <div>
         <div className="flex items-center gap-2 mb-1">
           <span className="text-slate-400">{formatET(trade.timestamp)}</span>
+          <span className="text-slate-600">/</span>
+          <span className="text-slate-500">{formatLocalTime(trade.timestamp)}</span>
           <span className={`font-bold ${trade.direction === 'UP' ? 'text-blue-400' : 'text-pink-500'}`}>{trade.direction}</span>
           {trade.forced_trade && <span className="text-[10px] bg-orange-500/10 text-orange-300 px-1.5 py-0.5 rounded border border-orange-500/20">FORCED</span>}
         </div>
