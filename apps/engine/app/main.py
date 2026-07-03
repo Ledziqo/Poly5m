@@ -1564,8 +1564,10 @@ async def backtests():
 async def control(body: ControlBody):
     if body.action == "start":
         state.settings.bot_state = "running"
+        start, _ = active_window_bounds()
+        state.processed_window_id = str(start)
         save_setting("bot_state", state.settings.bot_state)
-        log("INFO", "Bot started. Every round must enter: the brain analyzes early and forces the strongest side by 3:00 remaining.")
+        log("INFO", "Bot armed for the next round. Current active window will be ignored; every new round must enter by 3:00 remaining.")
     elif body.action == "stop":
         state.settings.bot_state = "stopped"
         save_setting("bot_state", state.settings.bot_state)
