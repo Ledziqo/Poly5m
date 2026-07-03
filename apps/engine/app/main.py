@@ -20,7 +20,7 @@ from pydantic import BaseModel
 Direction = Literal["UP", "DOWN", "WAIT"]
 DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
-ENTRY_MIN_ELAPSED_SECONDS = 10
+ENTRY_MIN_ELAPSED_SECONDS = 35
 ENTRY_FORCE_SECONDS = 180
 
 
@@ -68,6 +68,15 @@ def clamp(value: float, low: float, high: float) -> float:
 
 def normal_cdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+
+def logit(p: float) -> float:
+    p = clamp(p, 0.01, 0.99)
+    return math.log(p / (1 - p))
+
+
+def sigmoid(x: float) -> float:
+    return 1 / (1 + math.exp(-clamp(x, -12, 12)))
 
 
 @dataclass
@@ -1017,6 +1026,71 @@ def learning_adjustment(direction: str, confidence: int, forced: bool, read: dic
     }
 
 
+def bayesian_market_probability(model_up: float, indicators: dict, read: dict, distance: float, time_left: float) -> dict:
+    up_mid = clob_midpoint(state.up_bid, state.up_ask) or state.up_price or 0.5
+    down_mid = clob_midpoint(state.down_bid, state.down_ask) or state.down_price or 0.5
+    market_sum = max(0.01, up_mid + down_mid)
+    market_up = clamp(up_mid / market_sum, 0.03, 0.97)
+    market_conflict = abs(model_up - market_up)
+
+    distance_vote = normal_cdf(distance / max(0.00018, indicators["volatility"] * math.sqrt(max(30, time_left) / 60)))
+    agreement_vote = clamp(0.5 + read["agreement"] * 0.055, 0.18, 0.82)
+    trend_vote = clamp(
+        0.5
+        + clamp(indicators["ema_slope"] * 360, -0.18, 0.18)
+        + clamp(indicators["vwap_distance"] * 220, -0.16, 0.16)
+        + clamp(indicators["acceleration"] * 620, -0.12, 0.12),
+        0.08,
+        0.92,
+    )
+    orderbook_vote = clamp(0.5 + indicators["orderbook_imbalance"] * 0.18, 0.22, 0.78)
+    rsi = indicators["rsi"]
+    reversal_vote = 0.5
+    if rsi > 74:
+        reversal_vote = 0.44
+    elif rsi < 26:
+        reversal_vote = 0.56
+
+    model_weight = 0.42
+    market_weight = 0.26
+    distance_weight = 0.15
+    agreement_weight = 0.08
+    trend_weight = 0.06
+    orderbook_weight = 0.03
+    if read["regime"] == "choppy":
+        market_weight += 0.10
+        model_weight -= 0.08
+        trend_weight -= 0.02
+    elif read["regime"] == "aligned-trend":
+        model_weight += 0.06
+        trend_weight += 0.04
+        market_weight -= 0.05
+    if market_conflict > 0.24:
+        market_weight += 0.08
+        model_weight -= 0.06
+
+    combined_logit = (
+        logit(model_up) * model_weight
+        + logit(market_up) * market_weight
+        + logit(distance_vote) * distance_weight
+        + logit(agreement_vote) * agreement_weight
+        + logit(trend_vote) * trend_weight
+        + logit(orderbook_vote) * orderbook_weight
+        + logit(reversal_vote) * 0.03
+    )
+    combined_up = clamp(sigmoid(combined_logit), 0.03, 0.97)
+    return {
+        "up": combined_up,
+        "down": 1 - combined_up,
+        "market_up": market_up,
+        "distance_vote": distance_vote,
+        "agreement_vote": agreement_vote,
+        "trend_vote": trend_vote,
+        "orderbook_vote": orderbook_vote,
+        "conflict": market_conflict,
+    }
+
+
 def entry_snapshot(direction: str, confidence: int, forced: bool, read: dict, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float, fair_up: float, fair_down: float, edge_up: float, edge_down: float, brain: dict, learning: dict) -> dict:
     return {
         "direction": direction,
@@ -1110,8 +1184,10 @@ def compute_decision() -> dict:
     seconds_to_expiry = max(20, time_left)
     projected_finish = distance + micro_momentum * vol * math.sqrt(seconds_to_expiry / 300)
     sigma = max(0.00035, vol * math.sqrt(seconds_to_expiry / 60))
-    fair_up = clamp(normal_cdf(projected_finish / sigma), 0.03, 0.97)
-    fair_down = 1 - fair_up
+    model_fair_up = clamp(normal_cdf(projected_finish / sigma), 0.03, 0.97)
+    bayes = bayesian_market_probability(model_fair_up, indicators, read, distance, time_left)
+    fair_up = bayes["up"]
+    fair_down = bayes["down"]
 
     fee = state.settings.taker_fee_rate
     edge_up = fair_up - state.up_ask - fee
@@ -1150,6 +1226,7 @@ def compute_decision() -> dict:
         f"Market read is {read['regime']}: agreement score {read['agreement']:+d}/5, trend strength {read['trend_strength']:.2f}, chop pressure {read['chop_penalty']:.2f}.",
         f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
+        f"Bayesian probability blends model {model_fair_up * 100:.0f}% UP with market prior {bayes['market_up'] * 100:.0f}% UP; conflict {bayes['conflict'] * 100:.0f}%, distance vote {bayes['distance_vote'] * 100:.0f}%, trend vote {bayes['trend_vote'] * 100:.0f}%.",
         f"Fee-adjusted raw edge is UP {edge_up * 100:+.2f}c and DOWN {edge_down * 100:+.2f}c; learned edge is UP {learned_edge_up * 100:+.2f}c and DOWN {learned_edge_down * 100:+.2f}c after spread/liquidity/overpay penalties.",
         f"Calibration read for {best_side}: historical bucket rate {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} matching confidence samples; setup tags {', '.join(selected_learning['tags'][:4])}.",
         f"Entry discipline: analyze immediately, enter when confidence is ready, and force the strongest side by 3:00 remaining so no round is skipped.",
@@ -1167,9 +1244,12 @@ def compute_decision() -> dict:
         confidence = int(clamp(confidence + (selected_learning["calibrated_rate"] - 0.5) * 36, 8, 94))
     if spread_penalty or thin_book_penalty or max(up_overpay_penalty, down_overpay_penalty):
         confidence = int(clamp(confidence - (spread_penalty + thin_book_penalty + (up_overpay_penalty if best_side == "UP" else down_overpay_penalty)) * 90, 8, 94))
-    min_confidence = {"safe": 72, "balanced": 64, "aggressive": 56}.get(state.settings.risk_mode, 64)
-    stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 2
+    if bayes["conflict"] > 0.28 and read["regime"] != "aligned-trend":
+        confidence = max(8, confidence - 8)
+    min_confidence = {"safe": 82, "balanced": 76, "aggressive": 70}.get(state.settings.risk_mode, 76)
+    stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 3
     learned_penalty = memory["loss_streak"] >= 2 and not forced
+    early_edge_floor = min_edge + {"safe": 0.020, "balanced": 0.014, "aggressive": 0.008}.get(state.settings.risk_mode, 0.014)
 
     if before_entry_window and not state.active_trade:
         reason = "Collecting the opening ticks before placing this round's required trade."
@@ -1211,16 +1291,16 @@ def compute_decision() -> dict:
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
-    if best_edge >= min_edge and confidence >= min_confidence and stable_enough and not learned_penalty and entry_window_open:
+    if best_edge >= early_edge_floor and confidence >= min_confidence and stable_enough and not learned_penalty and entry_window_open:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Selected {best_side} because net edge beats the regime-adjusted {min_edge * 100:.1f}c threshold, confidence is {confidence}% against the {min_confidence}% gate, and the stable signal has persisted."],
+            "reasons": data_reasons + [f"Selected {best_side} because learned edge beats the stricter early-entry {early_edge_floor * 100:.1f}c threshold, confidence is {confidence}% against the {min_confidence}% gate, and the signal persisted for 3 brain ticks."],
             "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
     guard_reasons = []
-    if best_edge < min_edge:
-        guard_reasons.append(f"edge {best_edge * 100:+.2f}c is below the {min_edge * 100:.1f}c threshold")
+    if best_edge < early_edge_floor:
+        guard_reasons.append(f"learned edge {best_edge * 100:+.2f}c is below the stricter {early_edge_floor * 100:.1f}c early-entry threshold")
     if confidence < min_confidence:
         guard_reasons.append(f"confidence {confidence}% is below the {min_confidence}% risk-mode gate")
     if not stable_enough:
