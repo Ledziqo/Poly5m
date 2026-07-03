@@ -11,15 +11,15 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
   const [editing, setEditing] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const optimisticUntilRef = useRef(0);
+  const saveSeqRef = useRef(0);
   const isRunning = local.bot_state === 'running';
 
   useEffect(() => {
-    if (editing || saving) return;
-    if (Date.now() < optimisticUntilRef.current && settings.bot_state !== local.bot_state) return;
+    if (editing || saving || Date.now() < optimisticUntilRef.current) return;
     setLocal(settings);
     setStakeDraft(String(settings.stake_amount));
     setBalanceDraft(String(settings.starting_balance));
-  }, [settings, editing, saving, local.bot_state]);
+  }, [settings, editing, saving]);
 
   const runAction = async (action: 'start' | 'stop' | 'reset' | 'emergency_stop') => {
     if (saving) return;
@@ -34,7 +34,8 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
     setSaving(true);
     setPendingAction(action);
     try {
-      await postControl(action);
+      const response = await postControl(action);
+      if (response?.settings) setLocal(response.settings);
       onUpdate();
     } catch (error) {
       setLocal(previous);
@@ -46,17 +47,26 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
   };
 
   const save = async (patch: Partial<Settings>) => {
+    const seq = ++saveSeqRef.current;
     const next = { ...local, ...patch };
     setLocal(next);
+    optimisticUntilRef.current = Date.now() + 2500;
     setSaving(true);
     try {
-      await postSettings(patch);
+      const response = await postSettings(patch);
+      if (seq === saveSeqRef.current && response?.settings) {
+        setLocal(response.settings);
+        setStakeDraft(String(response.settings.stake_amount));
+        setBalanceDraft(String(response.settings.starting_balance));
+      }
       onUpdate();
     } catch (error) {
       console.error('Settings save failed:', error);
     } finally {
-      setSaving(false);
-      setEditing(false);
+      if (seq === saveSeqRef.current) {
+        setSaving(false);
+        setEditing(false);
+      }
     }
   };
 

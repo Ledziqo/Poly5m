@@ -612,8 +612,6 @@ async def sync_polymarket_hint() -> None:
         if len(prices) >= 2:
             state.gamma_up_price = clamp(float(prices[0]), 0.01, 0.99)
             state.gamma_down_price = clamp(float(prices[1]), 0.01, 0.99)
-            state.up_price = state.gamma_up_price
-            state.down_price = state.gamma_down_price
             state.liquidity = liquidity
             if REFERENCE_MODE == "binance":
                 state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB"
@@ -719,11 +717,30 @@ async def sync_clob_books() -> None:
         )
         state.up_bid, state.up_ask, state.best_depth_up = book_best(up_book)
         state.down_bid, state.down_ask, state.best_depth_down = book_best(down_book)
-        state.up_price = state.gamma_up_price or clamp((state.up_bid + state.up_ask) / 2, 0.01, 0.99)
-        state.down_price = state.gamma_down_price or clamp((state.down_bid + state.down_ask) / 2, 0.01, 0.99)
+        up_mid = clob_midpoint(state.up_bid, state.up_ask)
+        down_mid = clob_midpoint(state.down_bid, state.down_ask)
+        if up_mid is not None:
+            state.up_price = up_mid
+        else:
+            state.up_price = state.gamma_up_price
+        if down_mid is not None:
+            state.down_price = down_mid
+        else:
+            state.down_price = state.gamma_down_price
         state.liquidity = max(state.liquidity, state.best_depth_up * state.up_ask + state.best_depth_down * state.down_ask)
+        state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB"
     except Exception as exc:
         log("WARN", f"CLOB orderbook degraded: {exc}")
+
+
+def clob_midpoint(bid: float, ask: float) -> float | None:
+    if 0.01 <= bid <= 0.99 and 0.01 <= ask <= 0.99 and ask >= bid:
+        return clamp((bid + ask) / 2, 0.01, 0.99)
+    if 0.01 <= ask <= 0.99:
+        return clamp(ask, 0.01, 0.99)
+    if 0.01 <= bid <= 0.99:
+        return clamp(bid, 0.01, 0.99)
+    return None
 
 
 def returns(seconds: int) -> float:

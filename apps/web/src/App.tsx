@@ -205,17 +205,9 @@ function ProductPreview() {
         <span className="font-mono text-xs text-emerald-300">LIVE MARKET</span>
       </div>
       <div className="grid md:grid-cols-[1.2fr_0.8fr] gap-0">
-        <div className="border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
-          <div className="relative h-32 md:h-36 border-b border-[#403653] overflow-hidden">
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.07)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.07)_1px,transparent_1px)] bg-[size:36px_36px]" />
-            <div className="absolute left-3 md:left-4 top-3 md:top-4 border border-[#403653] bg-[#0D0B12]/90 px-2 md:px-3 py-1.5 md:py-2">
-              <div className="text-[8px] md:text-[9px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">Reference</div>
-              <div className="font-mono text-xs md:text-sm text-white">$62,104.26</div>
-            </div>
-            <div className="absolute right-3 md:right-4 top-3 md:top-4 border border-[#403653] bg-[#0D0B12]/90 px-2 md:px-3 py-1.5 md:py-2 text-right">
-              <div className="text-[8px] md:text-[9px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">To beat</div>
-              <div className="font-mono text-xs md:text-sm text-[#CBB9FF]">$62,083.10</div>
-            </div>
+          <div className="border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
+            <div className="relative h-32 md:h-36 border-b border-[#403653] overflow-hidden">
+              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.07)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.07)_1px,transparent_1px)] bg-[size:36px_36px]" />
             <svg viewBox="0 0 520 180" className="absolute inset-0 h-full w-full">
               <line x1="0" y1="106" x2="520" y2="106" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.72" />
               <line x1="386" y1="0" x2="386" y2="180" stroke="#E879F9" strokeDasharray="5 8" opacity="0.44" />
@@ -224,7 +216,11 @@ function ProductPreview() {
             </svg>
           </div>
           <div className="bg-[#08070C]/95 p-2.5 md:p-3">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <PreviewPill label="Reference" value="$62,104.26" />
+              <PreviewPill label="To beat" value="$62,083.10" />
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2">
               <PreviewPill label="Round" value="07:45 AM" />
               <PreviewPill label="Cutoff" value="02:00" />
               <PreviewPill label="Bias" value="UP 63%" />

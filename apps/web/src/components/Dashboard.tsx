@@ -50,7 +50,11 @@ export default function Dashboard() {
   const [streamConnected, setStreamConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [serverTime, setServerTime] = useState<number | null>(null);
   const prevOpenTradeRef = useRef<string | null>(null);
+  const lastStreamPaintRef = useRef(0);
+  const queuedStreamRef = useRef<LiveStreamPayload | null>(null);
+  const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = async () => {
     try {
@@ -80,6 +84,45 @@ export default function Dashboard() {
 
   useEffect(() => {
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    const applyStreamPayload = (payload: LiveStreamPayload) => {
+      const status = payload.status;
+      setData(status);
+      setCandles(Array.isArray(payload.candles) ? payload.candles : []);
+      setHistory(Array.isArray(payload.history) ? payload.history : []);
+      setStreamLogs(Array.isArray(payload.logs) ? payload.logs : []);
+      setServerTime(payload.server_time || null);
+
+      if (status.active_trade && status.active_trade.id !== prevOpenTradeRef.current) {
+        toast.success(`Bot entered ${status.active_trade.direction}`, {
+          description: `${(status.active_trade.entry_price * 100).toFixed(1)}c | ${status.active_trade.reason}`,
+        });
+      }
+      prevOpenTradeRef.current = status.active_trade?.id || null;
+      setLastUpdated(new Date());
+      setLoading(false);
+    };
+
+    const scheduleStreamPayload = (payload: LiveStreamPayload) => {
+      queuedStreamRef.current = payload;
+      const elapsed = Date.now() - lastStreamPaintRef.current;
+      if (elapsed >= 250) {
+        lastStreamPaintRef.current = Date.now();
+        applyStreamPayload(payload);
+        queuedStreamRef.current = null;
+        return;
+      }
+      if (!streamTimerRef.current) {
+        streamTimerRef.current = setTimeout(() => {
+          streamTimerRef.current = null;
+          const queued = queuedStreamRef.current;
+          if (!queued) return;
+          lastStreamPaintRef.current = Date.now();
+          applyStreamPayload(queued);
+          queuedStreamRef.current = null;
+        }, 250 - elapsed);
+      }
+    };
+
     const stream = new EventSource('/api/stream');
 
     stream.onopen = () => {
@@ -93,20 +136,7 @@ export default function Dashboard() {
     stream.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as LiveStreamPayload;
-        const status = payload.status;
-        setData(status);
-        setCandles(Array.isArray(payload.candles) ? payload.candles : []);
-        setHistory(Array.isArray(payload.history) ? payload.history : []);
-        setStreamLogs(Array.isArray(payload.logs) ? payload.logs : []);
-
-        if (status.active_trade && status.active_trade.id !== prevOpenTradeRef.current) {
-          toast.success(`Bot entered ${status.active_trade.direction}`, {
-            description: `${(status.active_trade.entry_price * 100).toFixed(1)}c | ${status.active_trade.reason}`,
-          });
-        }
-        prevOpenTradeRef.current = status.active_trade?.id || null;
-        setLastUpdated(new Date());
-        setLoading(false);
+        scheduleStreamPayload(payload);
       } catch (error) {
         console.error('Error parsing live stream:', error);
       }
@@ -124,6 +154,7 @@ export default function Dashboard() {
     return () => {
       stream.close();
       if (fallbackInterval) clearInterval(fallbackInterval);
+      if (streamTimerRef.current) clearTimeout(streamTimerRef.current);
     };
   }, []);
 
@@ -194,7 +225,7 @@ export default function Dashboard() {
               <PriceChart data={candles} currentPrice={data.window?.current_price || null} priceToBeat={data.window?.price_to_beat || null} />
             </div>
             <div className="md:col-span-1">
-              <ResolutionTimer targetTimestamp={data.window?.window_end || null} secondsRemaining={data.window?.time_left_seconds ?? null} />
+              <ResolutionTimer targetTimestamp={data.window?.window_end || null} serverTime={serverTime} />
             </div>
           </div>
 

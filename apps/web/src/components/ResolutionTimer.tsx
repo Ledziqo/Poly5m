@@ -1,22 +1,20 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 
-export default function ResolutionTimer({ targetTimestamp, secondsRemaining, key }: { targetTimestamp: number | null, secondsRemaining?: number | null, key?: string }) {
+export default function ResolutionTimer({ targetTimestamp, serverTime }: { targetTimestamp: number | null, serverTime?: number | null }) {
   const [timeLeft, setTimeLeft] = useState<{ m: string, s: string }>({ m: '00', s: '00' });
 
   useEffect(() => {
-    if (!targetTimestamp && secondsRemaining == null) {
+    if (!targetTimestamp) {
       setTimeLeft({ m: '00', s: '00' });
       return;
     }
 
     const syncedAt = Date.now();
-    const startingMs = secondsRemaining != null
-      ? Math.max(0, secondsRemaining * 1000)
-      : Math.max(0, (targetTimestamp || 0) - syncedAt);
+    const clockOffset = serverTime ? serverTime - syncedAt : 0;
 
     const updateTimer = () => {
-      const diff = Math.max(0, startingMs - (Date.now() - syncedAt));
+      const diff = Math.max(0, targetTimestamp - (Date.now() + clockOffset));
 
       if (diff <= 0) {
         setTimeLeft({ m: '00', s: '00' });
@@ -34,7 +32,7 @@ export default function ResolutionTimer({ targetTimestamp, secondsRemaining, key
     const interval = setInterval(updateTimer, 100);
 
     return () => clearInterval(interval);
-  }, [targetTimestamp, secondsRemaining]);
+  }, [targetTimestamp, serverTime]);
 
   return (
     <motion.div
