@@ -127,6 +127,8 @@ class EngineState:
     up_ask: float = 0.51
     down_bid: float = 0.49
     down_ask: float = 0.51
+    gamma_up_price: float = 0.5
+    gamma_down_price: float = 0.5
     liquidity: float = 0.0
     reference_source: str = "Binance BTCUSDT WebSocket"
     up_token_id: str = ""
@@ -443,6 +445,23 @@ def apply_polymarket_chainlink_price(price: float, timestamp_ms: int | None = No
     maybe_capture_price_to_beat(price, timestamp_ms)
 
 
+def apply_polymarket_chainlink_snapshot(points: list[dict]) -> None:
+    clean = []
+    for point in points:
+        try:
+            clean.append((int(point["timestamp"]), float(point["value"])))
+        except Exception:
+            continue
+    if not clean:
+        return
+    clean.sort(key=lambda item: item[0])
+    for ts, price in clean:
+        update_reference_candle(price, ts)
+        maybe_capture_price_to_beat(price, ts)
+    latest_ts, latest_price = clean[-1]
+    apply_polymarket_chainlink_price(latest_price, latest_ts)
+
+
 def update_reference_candle(price: float, timestamp_ms: int) -> None:
     minute = (timestamp_ms // 60_000) * 60_000
     if state.candles and state.candles[-1]["timestamp"] == minute:
@@ -478,7 +497,7 @@ def maybe_capture_price_to_beat(price: float, timestamp_ms: int) -> None:
         state.price_to_beat_source = "polymarket"
         state.price_to_beat_window_id = window_id
         state.price_to_beat_distance_ms = distance
-        log("INFO", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} for {state.pm_event_slug or window_id}.")
+        log("INFO", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} at {timestamp_ms} for {state.pm_event_slug or window_id}.")
 
 
 async def polymarket_rtds_loop() -> None:
@@ -509,6 +528,11 @@ async def polymarket_rtds_loop() -> None:
                     payload = msg.get("payload") if isinstance(msg, dict) else None
                     if not isinstance(payload, dict):
                         continue
+                    if msg.get("timestamp"):
+                        state.polymarket_clock_offset_ms = int(msg["timestamp"]) - now_ms()
+                    if isinstance(payload.get("data"), list):
+                        apply_polymarket_chainlink_snapshot(payload["data"])
+                        continue
                     symbol = str(payload.get("symbol") or "").lower()
                     if symbol != "btc/usd":
                         continue
@@ -517,8 +541,6 @@ async def polymarket_rtds_loop() -> None:
                         continue
                     price = float(value)
                     ts = int(payload.get("timestamp") or msg.get("timestamp") or now_ms())
-                    if msg.get("timestamp"):
-                        state.polymarket_clock_offset_ms = int(msg["timestamp"]) - now_ms()
                     apply_polymarket_chainlink_price(price, ts)
         except Exception as exc:
             state.chainlink_status = "degraded" if state.chainlink_price else state.chainlink_status
@@ -536,7 +558,7 @@ async def sync_polymarket_hint() -> None:
         except Exception:
             events = await fetch_json("https://gamma-api.polymarket.com/events?active=true&closed=false&limit=500&order=end_date&ascending=true", 10.0)
             candidates = [e for e in events if "btc-updown-5m" in str(e.get("slug", "")).lower()]
-            now = now_ms()
+            now = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
 
             def event_distance(candidate: dict) -> int:
                 candidate_market = (candidate.get("markets") or [None])[0] or {}
@@ -588,18 +610,15 @@ async def sync_polymarket_hint() -> None:
             prices = json.loads(prices)
         liquidity = float(market.get("liquidityNum") or market.get("liquidity") or 0)
         if len(prices) >= 2:
-            state.up_price = clamp(float(prices[0]), 0.01, 0.99)
-            state.down_price = clamp(float(prices[1]), 0.01, 0.99)
-            spread = 0.025
-            state.up_bid = clamp(state.up_price - spread / 2, 0.01, 0.99)
-            state.up_ask = clamp(state.up_price + spread / 2, 0.01, 0.99)
-            state.down_bid = clamp(state.down_price - spread / 2, 0.01, 0.99)
-            state.down_ask = clamp(state.down_price + spread / 2, 0.01, 0.99)
+            state.gamma_up_price = clamp(float(prices[0]), 0.01, 0.99)
+            state.gamma_down_price = clamp(float(prices[1]), 0.01, 0.99)
+            state.up_price = state.gamma_up_price
+            state.down_price = state.gamma_down_price
             state.liquidity = liquidity
             if REFERENCE_MODE == "binance":
-                state.reference_source = "Binance BTCUSDT WebSocket + Polymarket"
+                state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB"
             else:
-                state.reference_source = "Chainlink/reference BTC/USD + Polymarket" if state.chainlink_status == "live" else state.reference_source
+                state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB" if state.chainlink_status == "live" else state.reference_source
         await sync_clob_books()
         persist_window()
     except Exception as exc:
@@ -682,9 +701,11 @@ def parse_market_tokens(market: dict) -> None:
 def book_best(book: dict) -> tuple[float, float, float]:
     bids = book.get("bids") or []
     asks = book.get("asks") or []
-    bid = max([float(x.get("price", 0)) for x in bids], default=0)
-    ask = min([float(x.get("price", 1)) for x in asks], default=1)
-    depth = sum(float(x.get("size", 0)) for x in asks[:8]) if asks else 0
+    bid_levels = sorted([(float(x.get("price", 0)), float(x.get("size", 0))) for x in bids], reverse=True)
+    ask_levels = sorted([(float(x.get("price", 1)), float(x.get("size", 0))) for x in asks])
+    bid = bid_levels[0][0] if bid_levels else 0
+    ask = ask_levels[0][0] if ask_levels else 1
+    depth = sum(size for _, size in ask_levels[:8])
     return bid, ask, depth
 
 
@@ -698,8 +719,8 @@ async def sync_clob_books() -> None:
         )
         state.up_bid, state.up_ask, state.best_depth_up = book_best(up_book)
         state.down_bid, state.down_ask, state.best_depth_down = book_best(down_book)
-        state.up_price = clamp((state.up_bid + state.up_ask) / 2, 0.01, 0.99)
-        state.down_price = clamp((state.down_bid + state.down_ask) / 2, 0.01, 0.99)
+        state.up_price = state.gamma_up_price or clamp((state.up_bid + state.up_ask) / 2, 0.01, 0.99)
+        state.down_price = state.gamma_down_price or clamp((state.down_bid + state.down_ask) / 2, 0.01, 0.99)
         state.liquidity = max(state.liquidity, state.best_depth_up * state.up_ask + state.best_depth_down * state.down_ask)
     except Exception as exc:
         log("WARN", f"CLOB orderbook degraded: {exc}")
@@ -905,7 +926,8 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
 def compute_decision() -> dict:
     clear_stale_polymarket_window()
     start, end = active_window_bounds()
-    time_left = max(0, (end - now_ms()) / 1000)
+    current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+    time_left = max(0, (end - current_time) / 1000)
     elapsed = 300 - time_left
     price = state.current_price
     strike = state.price_to_beat or price
@@ -1122,7 +1144,8 @@ def settle_active_trade(reason: str = "window rollover") -> None:
     if state.active_trade.status != "OPEN":
         state.active_trade = None
         return
-    if state.active_trade.window_id != str(active_window_bounds()[0]) or now_ms() >= int(state.active_trade.window_id) + 5 * 60 * 1000:
+    current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+    if state.active_trade.window_id != str(active_window_bounds()[0]) or current_time >= int(state.active_trade.window_id) + 5 * 60 * 1000:
         won = (state.active_trade.direction == "UP" and state.current_price > state.active_trade.price_to_beat) or (state.active_trade.direction == "DOWN" and state.current_price < state.active_trade.price_to_beat)
         state.active_trade.status = "RESOLVED"
         state.active_trade.actual_outcome = "WIN" if won else "LOSS"
@@ -1180,7 +1203,8 @@ async def maybe_trade() -> None:
         save_setting("skipped_windows", state.settings.skipped_windows)
         log("TRADE", f"Entered {direction} at {ask * 100:.1f}c with ${stake:.2f}. {trade.reason}")
     else:
-        if (end - now_ms()) <= 120_000:
+        current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+        if (end - current_time) <= 120_000:
             state.processed_window_id = window_id
             state.settings.skipped_windows += 1
             save_setting("skipped_windows", state.settings.skipped_windows)

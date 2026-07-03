@@ -15,7 +15,7 @@ export default function ResolutionTimer({ targetTimestamp, secondsRemaining, key
       ? Math.max(0, secondsRemaining * 1000)
       : Math.max(0, (targetTimestamp || 0) - syncedAt);
 
-    const interval = setInterval(() => {
+    const updateTimer = () => {
       const diff = Math.max(0, startingMs - (Date.now() - syncedAt));
 
       if (diff <= 0) {
@@ -28,7 +28,10 @@ export default function ResolutionTimer({ targetTimestamp, secondsRemaining, key
           s: seconds.toString().padStart(2, '0')
         });
       }
-    }, 100);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 100);
 
     return () => clearInterval(interval);
   }, [targetTimestamp, secondsRemaining]);
