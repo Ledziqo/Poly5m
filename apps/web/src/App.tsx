@@ -239,6 +239,20 @@ function ProductPreview() {
                 <div className="mt-1 font-mono text-xs text-white">$50</div>
               </div>
             </div>
+            <div className="mt-2 border border-[#403653] bg-[#08070C] p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-[8px] uppercase tracking-[0.18em] text-[#8F7DB5]">brain stack</span>
+                <span className="font-mono text-[10px] text-emerald-300">confidence 71%</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <PreviewMicro label="regime" value="trend" tone="green" />
+                <PreviewMicro label="memory" value="2-0" tone="pink" />
+                <PreviewMicro label="window" value="armed" tone="white" />
+              </div>
+              <div className="mt-2 h-1.5 border border-[#403653] bg-[#0D0B12]">
+                <div className="h-full w-[71%] bg-[#CBB9FF]" />
+              </div>
+            </div>
           </div>
         </div>
         <div className="p-3 md:p-4">
@@ -276,6 +290,16 @@ function PreviewPill({ label, value }: { label: string; value: string }) {
     <div className="border border-[#403653] bg-[#08070C]/85 px-2 py-1.5 md:py-2">
       <div className="text-[7px] md:text-[8px] uppercase tracking-[0.16em] md:tracking-[0.18em] text-[#8F7DB5]">{label}</div>
       <div className="mt-1 truncate font-mono text-[11px] md:text-xs text-white">{value}</div>
+    </div>
+  );
+}
+
+function PreviewMicro({ label, value, tone }: { label: string; value: string; tone: 'green' | 'pink' | 'white' }) {
+  const color = tone === 'green' ? 'text-emerald-300' : tone === 'pink' ? 'text-[#CBB9FF]' : 'text-white';
+  return (
+    <div className="border border-[#403653] bg-[#0D0B12] px-2 py-1.5">
+      <div className="text-[7px] uppercase tracking-[0.14em] text-[#8F7DB5]">{label}</div>
+      <div className={`mt-1 font-mono text-[10px] ${color}`}>{value}</div>
     </div>
   );
 }
