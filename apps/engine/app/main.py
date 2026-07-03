@@ -101,6 +101,7 @@ class Trade:
     exit_price: float | None = None
     forced_trade: bool = False
     reason: str = ""
+    entry_features: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -219,7 +220,8 @@ def init_db() -> None:
           pnl REAL NOT NULL,
           actual_outcome TEXT,
           forced_trade INTEGER NOT NULL,
-          reason TEXT NOT NULL
+          reason TEXT NOT NULL,
+          entry_features TEXT NOT NULL DEFAULT '{}'
         );
         CREATE TABLE IF NOT EXISTS logs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -248,6 +250,9 @@ def init_db() -> None:
           notes TEXT NOT NULL
         );
         """)
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(trades)").fetchall()}
+        if "entry_features" not in columns:
+            con.execute("ALTER TABLE trades ADD COLUMN entry_features TEXT NOT NULL DEFAULT '{}'")
 
 
 def save_setting(key: str, value) -> None:
@@ -280,6 +285,7 @@ def load_persistent_state() -> None:
                 actual_outcome=r["actual_outcome"],
                 forced_trade=bool(r["forced_trade"]),
                 reason=r["reason"],
+                entry_features=json.loads(r["entry_features"] or "{}"),
             )
             for r in rows
         ]
@@ -293,14 +299,14 @@ def persist_trade(trade: Trade) -> None:
             """
             INSERT OR REPLACE INTO trades(
               id,timestamp,window_id,direction,status,entry_price,exit_price,price_to_beat,
-              btc_entry_price,shares_count,stake,fee_paid,pnl,actual_outcome,forced_trade,reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              btc_entry_price,shares_count,stake,fee_paid,pnl,actual_outcome,forced_trade,reason,entry_features
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade.id, trade.timestamp, trade.window_id, trade.direction, trade.status,
                 trade.entry_price, trade.exit_price, trade.price_to_beat, trade.btc_entry_price,
                 trade.shares_count, trade.stake, trade.fee_paid, trade.pnl, trade.actual_outcome,
-                1 if trade.forced_trade else 0, trade.reason,
+                1 if trade.forced_trade else 0, trade.reason, json.dumps(trade.entry_features, separators=(",", ":")),
             ),
         )
 
@@ -942,6 +948,126 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
     }
 
 
+def bucket(value: float, cuts: list[float], labels: list[str]) -> str:
+    for cut, label in zip(cuts, labels):
+        if value < cut:
+            return label
+    return labels[-1]
+
+
+def setup_tags(direction: str, confidence: int, forced: bool, read: dict, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float) -> list[str]:
+    dist_abs = abs(distance) * 100
+    tags = [
+        f"side:{direction}",
+        f"forced:{1 if forced else 0}",
+        f"regime:{read['regime']}",
+        f"conf:{bucket(confidence, [45, 60, 72, 84], ['very_low', 'low', 'mid', 'high', 'elite'])}",
+        f"time:{bucket(time_left, [195, 225, 255, 285], ['force_zone', 'late_analysis', 'mid_analysis', 'early_analysis', 'open'])}",
+        f"distance:{bucket(dist_abs, [0.015, 0.04, 0.09, 0.18], ['touching', 'near', 'medium', 'far', 'stretched'])}",
+        f"spread:{bucket(spread * 100, [1.5, 3.0, 5.0], ['tight', 'normal', 'wide', 'bad'])}",
+        f"liquidity:{bucket(liquidity, [2500, 10000, 35000], ['thin', 'normal', 'deep', 'very_deep'])}",
+        f"odds:{bucket(entry_price, [0.35, 0.55, 0.72], ['cheap', 'fair', 'favorite', 'expensive'])}",
+    ]
+    if indicators["rsi"] > 72:
+        tags.append("rsi:hot")
+    elif indicators["rsi"] < 28:
+        tags.append("rsi:cold")
+    else:
+        tags.append("rsi:neutral")
+    tags.append("agreement:strong" if abs(read["agreement"]) >= 4 else "agreement:mixed")
+    return tags
+
+
+def learned_rate(tag: str, direction: str | None = None, forced: bool | None = None, limit: int = 240) -> dict:
+    resolved = [t for t in state.history if t.status == "RESOLVED" and t.actual_outcome in ("WIN", "LOSS") and t.entry_features]
+    sample = []
+    for trade in resolved[-limit:]:
+        features = trade.entry_features or {}
+        if tag not in features.get("tags", []):
+            continue
+        if direction and trade.direction != direction:
+            continue
+        if forced is not None and bool(trade.forced_trade) != forced:
+            continue
+        sample.append(trade)
+    wins = len([t for t in sample if t.actual_outcome == "WIN"])
+    total = len(sample)
+    rate = wins / total if total else 0.5
+    confidence = min(1.0, total / 18)
+    return {"wins": wins, "total": total, "rate": rate, "confidence": confidence}
+
+
+def learning_adjustment(direction: str, confidence: int, forced: bool, read: dict, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float) -> dict:
+    tags = setup_tags(direction, confidence, forced, read, indicators, distance, time_left, spread, liquidity, entry_price)
+    weighted = 0.0
+    weight_total = 0.0
+    tag_reads = []
+    for tag in tags:
+        stat = learned_rate(tag, direction=direction, forced=forced)
+        if stat["total"] < 4:
+            continue
+        edge = (stat["rate"] - 0.5) * stat["confidence"]
+        weighted += edge
+        weight_total += stat["confidence"]
+        tag_reads.append({"tag": tag, **stat})
+    learned_bias = clamp(weighted / weight_total if weight_total else 0.0, -0.14, 0.14)
+    calibration = learned_rate(f"conf:{bucket(confidence, [45, 60, 72, 84], ['very_low', 'low', 'mid', 'high', 'elite'])}", direction=direction)
+    return {
+        "bias": learned_bias,
+        "tags": tags,
+        "tag_reads": tag_reads[:8],
+        "calibrated_rate": calibration["rate"],
+        "calibration_sample": calibration["total"],
+    }
+
+
+def entry_snapshot(direction: str, confidence: int, forced: bool, read: dict, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float, fair_up: float, fair_down: float, edge_up: float, edge_down: float, brain: dict, learning: dict) -> dict:
+    return {
+        "direction": direction,
+        "confidence": confidence,
+        "forced": forced,
+        "regime": read["regime"],
+        "agreement": read["agreement"],
+        "trend_strength": read["trend_strength"],
+        "chop_penalty": read["chop_penalty"],
+        "distance": distance,
+        "time_left": time_left,
+        "spread": spread,
+        "liquidity": liquidity,
+        "entry_price": entry_price,
+        "fair_up": fair_up,
+        "fair_down": fair_down,
+        "edge_up": edge_up,
+        "edge_down": edge_down,
+        "brain_bias": brain["smoothed_bias"],
+        "signal_age": brain["signal_age"],
+        "indicators": indicators,
+        "tags": learning["tags"],
+        "learning_bias": learning["bias"],
+        "calibrated_rate": learning["calibrated_rate"],
+        "calibration_sample": learning["calibration_sample"],
+    }
+
+
+def loss_autopsy(trade: Trade) -> str:
+    features = trade.entry_features or {}
+    if trade.actual_outcome == "WIN":
+        return "setup confirmed"
+    if trade.forced_trade:
+        return "forced entry carried weaker selectivity"
+    if features.get("spread", 0) > 0.04:
+        return "wide spread taxed the entry"
+    if features.get("chop_penalty", 0) > 1.2:
+        return "choppy regime reversed the read"
+    if features.get("entry_price", 0) > 0.72:
+        return "paid expensive favorite odds"
+    if abs(features.get("distance", 0)) < 0.00015:
+        return "price stayed too close to the beat line"
+    if features.get("calibration_sample", 0) >= 8 and features.get("calibrated_rate", 0.5) < 0.48:
+        return "historically weak setup bucket"
+    return "direction lost after entry"
+
+
 def compute_decision() -> dict:
     clear_stale_polymarket_window()
     start, end = active_window_bounds()
@@ -997,12 +1123,28 @@ def compute_decision() -> dict:
     raw_side = "UP" if edge_up >= edge_down else "DOWN"
     agreement_bias = clamp(read["agreement"] * 0.035, -0.18, 0.18)
     raw_bias = clamp((edge_up - edge_down) * 1.6 + clamp(micro_momentum / 5.0, -0.45, 0.45) + memory["recent_bias"] + agreement_bias, -1.0, 1.0)
-    brain = brain_filter(raw_side, raw_bias, edge_up, edge_down, micro_momentum, window_id)
-    best_side = brain["side"] if brain["side"] in ("UP", "DOWN") else raw_side
-    best_edge = edge_up if best_side == "UP" else edge_down
-    raw_best_edge = max(edge_up, edge_down)
     force_now = time_left <= ENTRY_FORCE_SECONDS
     forced = force_now
+    brain = brain_filter(raw_side, raw_bias, edge_up, edge_down, micro_momentum, window_id)
+    spread = max(state.up_ask - state.up_bid, state.down_ask - state.down_bid)
+    up_learning = learning_adjustment("UP", brain["confidence"], forced, read, indicators, distance, time_left, spread, state.liquidity, state.up_ask)
+    down_learning = learning_adjustment("DOWN", brain["confidence"], forced, read, indicators, distance, time_left, spread, state.liquidity, state.down_ask)
+    spread_penalty = clamp((spread - 0.02) * 1.15, 0.0, 0.08)
+    thin_book_penalty = 0.025 if state.liquidity < 2500 else 0.0
+    up_overpay_penalty = clamp((state.up_ask - 0.72) * 0.22, 0.0, 0.055)
+    down_overpay_penalty = clamp((state.down_ask - 0.72) * 0.22, 0.0, 0.055)
+    learned_edge_up = edge_up + up_learning["bias"] - spread_penalty - thin_book_penalty - up_overpay_penalty
+    learned_edge_down = edge_down + down_learning["bias"] - spread_penalty - thin_book_penalty - down_overpay_penalty
+    learned_side = "UP" if learned_edge_up >= learned_edge_down else "DOWN"
+    best_side = brain["side"] if brain["side"] in ("UP", "DOWN") and not forced else learned_side
+    if best_side == "UP" and learned_edge_down > learned_edge_up + 0.035:
+        best_side = "DOWN"
+    elif best_side == "DOWN" and learned_edge_up > learned_edge_down + 0.035:
+        best_side = "UP"
+    best_edge = learned_edge_up if best_side == "UP" else learned_edge_down
+    raw_best_edge = max(edge_up, edge_down)
+    selected_learning = up_learning if best_side == "UP" else down_learning
+    selected_entry_price = state.up_ask if best_side == "UP" else state.down_ask
 
     entry_window_open = elapsed >= ENTRY_MIN_ELAPSED_SECONDS and time_left > ENTRY_FORCE_SECONDS
     before_entry_window = elapsed < ENTRY_MIN_ELAPSED_SECONDS
@@ -1012,7 +1154,8 @@ def compute_decision() -> dict:
         f"Market read is {read['regime']}: agreement score {read['agreement']:+d}/5, trend strength {read['trend_strength']:.2f}, chop pressure {read['chop_penalty']:.2f}.",
         f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
-        f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee; stable side edge is {best_edge * 100:+.2f}c.",
+        f"Fee-adjusted raw edge is UP {edge_up * 100:+.2f}c and DOWN {edge_down * 100:+.2f}c; learned edge is UP {learned_edge_up * 100:+.2f}c and DOWN {learned_edge_down * 100:+.2f}c after spread/liquidity/overpay penalties.",
+        f"Calibration read for {best_side}: historical bucket rate {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} matching confidence samples; setup tags {', '.join(selected_learning['tags'][:4])}.",
         f"Entry discipline: analyze immediately, enter when confidence is ready, and force the strongest side by 3:00 remaining so no round is skipped.",
     ]
     if brain["flip_blocked"]:
@@ -1024,6 +1167,10 @@ def compute_decision() -> dict:
         confidence = min(92, confidence + 4)
     elif read["regime"] in ("choppy", "exhaustion-risk"):
         confidence = max(5, confidence - 7)
+    if selected_learning["calibration_sample"] >= 8:
+        confidence = int(clamp(confidence + (selected_learning["calibrated_rate"] - 0.5) * 36, 8, 94))
+    if spread_penalty or thin_book_penalty or max(up_overpay_penalty, down_overpay_penalty):
+        confidence = int(clamp(confidence - (spread_penalty + thin_book_penalty + (up_overpay_penalty if best_side == "UP" else down_overpay_penalty)) * 90, 8, 94))
     min_confidence = {"safe": 72, "balanced": 64, "aggressive": 56}.get(state.settings.risk_mode, 64)
     stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 2
     learned_penalty = memory["loss_streak"] >= 2 and not forced
@@ -1036,12 +1183,14 @@ def compute_decision() -> dict:
             "confidence": confidence,
             "reasons": data_reasons + [reason],
             "no_trade_reason": no_trade_reason,
+            "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
     if force_window_reached and not state.active_trade:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
             "reasons": data_reasons + [f"Mandatory round entry triggered at 3:00 remaining. Selected {best_side}, the strongest available side after the analysis window."],
+            "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
     if not entry_window_open and not state.active_trade:
@@ -1056,18 +1205,21 @@ def compute_decision() -> dict:
             "confidence": confidence,
             "reasons": data_reasons + [reason],
             "no_trade_reason": no_trade_reason,
+            "entry_features": entry_snapshot(best_side, confidence, forced, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
     if forced:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
             "reasons": data_reasons + [f"Mandatory round entry selected {best_side}, the strongest available side."],
+            "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
     if best_edge >= min_edge and confidence >= min_confidence and stable_enough and not learned_penalty and entry_window_open:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
             "reasons": data_reasons + [f"Selected {best_side} because net edge beats the regime-adjusted {min_edge * 100:.1f}c threshold, confidence is {confidence}% against the {min_confidence}% gate, and the stable signal has persisted."],
+            "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
     guard_reasons = []
@@ -1084,6 +1236,7 @@ def compute_decision() -> dict:
         **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
         "reasons": data_reasons + [f"Waiting because {guard_text}; raw best edge is {raw_best_edge * 100:+.2f}c."],
         "no_trade_reason": "No fee-adjusted edge yet.",
+        "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
     }
 
 
@@ -1212,7 +1365,7 @@ def settle_active_trade(reason: str = "window rollover") -> None:
         state.settings.balance += payout
         persist_trade(state.active_trade)
         save_setting("balance", state.settings.balance)
-        log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f} ({reason}).")
+        log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f} ({reason}). Autopsy: {loss_autopsy(state.active_trade)}.")
         state.active_trade = None
 
 
@@ -1231,7 +1384,10 @@ async def maybe_trade() -> None:
     if decision["action"] == "ENTER" and decision["direction"] in ("UP", "DOWN"):
         direction = decision["direction"]
         ask = state.up_ask if direction == "UP" else state.down_ask
-        stake = min(state.settings.stake_amount, state.settings.max_trade_amount, state.settings.balance)
+        stake = state.settings.stake_amount
+        if state.settings.balance < stake:
+            log("WARN", f"Cannot enter {direction}: balance ${state.settings.balance:.2f} is below fixed stake ${stake:.2f}.")
+            return
         fee = stake * state.settings.taker_fee_rate
         net = max(0, stake - fee)
         shares = net / ask if ask > 0 else 0
@@ -1249,6 +1405,7 @@ async def maybe_trade() -> None:
             fee_paid=fee,
             forced_trade=decision["forced_trade"],
             reason=decision["reasons"][-1] if decision["reasons"] else "Entered by engine.",
+            entry_features=decision.get("entry_features") or {},
         )
         state.history.append(trade)
         state.active_trade = trade
