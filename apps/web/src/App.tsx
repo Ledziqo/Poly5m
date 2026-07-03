@@ -41,14 +41,14 @@ export default function App() {
 
 function Landing({ onNav }: { onNav: (path: string) => void }) {
   return (
-    <div className="min-h-screen bg-[#070A0F] text-slate-100">
-      <div className="border-b border-white/10 bg-[#070A0F]/95">
+    <div className="min-h-screen bg-[#07070A] text-slate-100">
+      <div className="border-b border-[#403653] bg-[#08070C]/95">
         <div className="max-w-7xl mx-auto px-5 md:px-6 h-20 flex items-center justify-between gap-4">
           <button onClick={() => onNav('/')} className="flex items-center gap-3">
-            <img src="/polyengine-icon.png" alt="PolyEngine" className="h-9 w-9 rounded-md object-contain" />
+            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-11 w-11 object-cover border border-[#4A3A6A]" />
             <div className="text-left">
-              <div className="text-sm font-semibold tracking-wide text-white">PolyEngine</div>
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">BTC 5m terminal</div>
+              <div className="text-base font-semibold tracking-[0.18em] text-white uppercase">PolyEngine</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-[#8F7DB5]">BTC 5m terminal</div>
             </div>
           </button>
           <nav className="hidden md:flex items-center gap-7 text-sm text-slate-400">
@@ -57,33 +57,42 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
             <a href="#audit" className="hover:text-white transition">Audit</a>
           </nav>
           <div className="flex items-center gap-2">
-            <button onClick={() => onNav('/login')} className="h-10 px-4 border border-white/12 bg-white/[0.03] text-sm font-medium text-slate-200 hover:bg-white/[0.06] transition">Login</button>
-            <button onClick={() => onNav('/request-access')} className="h-10 px-4 bg-white text-sm font-semibold text-[#070A0F] hover:bg-slate-200 transition">Request access</button>
+            <button onClick={() => onNav('/login')} className="h-10 px-4 border border-[#403653] bg-[#15111F] text-sm font-medium text-slate-200 hover:bg-[#211A31] transition">Login</button>
+            <button onClick={() => onNav('/request-access')} className="h-10 px-4 bg-[#E7E0F8] text-sm font-semibold text-[#100A1A] hover:bg-white transition">Request access</button>
           </div>
         </div>
       </div>
 
       <main>
-        <section className="border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-5 md:px-6 py-12 md:py-16 grid lg:grid-cols-[0.82fr_1.18fr] gap-10 items-start">
+        <section className="relative overflow-hidden border-b border-[#403653]">
+          <div className="absolute inset-0 opacity-[0.16] bg-[linear-gradient(90deg,#6D5A91_1px,transparent_1px),linear-gradient(#6D5A91_1px,transparent_1px)] bg-[size:54px_54px]" />
+          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#3A2A5C]/25 to-transparent" />
+          <div className="relative max-w-7xl mx-auto px-5 md:px-6 py-12 md:py-16 grid lg:grid-cols-[0.78fr_1.22fr] gap-10 items-start">
             <div className="pt-2">
-              <div className="inline-flex border border-emerald-400/20 bg-emerald-400/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                Private live paper engine
+              <div className="inline-flex border border-[#6F5A99] bg-[#1B1428] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#CBB9FF]">
+                Private Polymarket execution lab
               </div>
-              <h1 className="mt-6 text-4xl md:text-6xl font-semibold leading-[1.02] tracking-tight text-white">
-                Bitcoin 5-minute Polymarket execution, measured tick by tick.
+              <h1 className="mt-6 text-4xl md:text-6xl font-semibold leading-[1.01] tracking-tight text-white">
+                A sharper command center for Bitcoin’s 5-minute knife edge.
               </h1>
-              <p className="mt-6 max-w-xl text-base md:text-lg leading-8 text-slate-400">
-                A focused cockpit for the BTC Up/Down 5m market: Polymarket Chainlink price, live CLOB odds, round timer, simulated fills, and a full decision log in one place.
+              <p className="mt-6 max-w-xl text-base md:text-lg leading-8 text-[#B7AFC7]">
+                PolyEngine tracks the live Polymarket BTC Up/Down round with Chainlink reference price, CLOB odds, entry discipline, and a decision audit designed for one market only.
               </p>
-              <div className="mt-8 grid grid-cols-3 border border-white/10 divide-x divide-white/10 max-w-xl">
-                <LandingMetric value="RTDS" label="price feed" />
-                <LandingMetric value="CLOB" label="odds source" />
-                <LandingMetric value="2:00" label="entry close" />
+              <div className="mt-8 grid grid-cols-3 border border-[#443757] divide-x divide-[#443757] max-w-xl bg-[#0D0B12]/80">
+                <LandingMetric value="1:1" label="market source" />
+                <LandingMetric value="CLOB" label="live odds" />
+                <LandingMetric value="RTDS" label="btc feed" />
               </div>
               <div className="mt-8 flex flex-wrap gap-3">
-                <button onClick={() => onNav('/login')} className="h-12 px-5 bg-cyan-300 text-sm font-bold text-slate-950 hover:bg-cyan-200 transition">Open terminal</button>
-                <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-white/12 bg-white/[0.03] text-sm font-semibold text-white hover:bg-white/[0.06] transition">Request access</button>
+                <button onClick={() => onNav('/login')} className="h-12 px-5 bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition shadow-[0_0_28px_rgba(143,125,181,0.18)]">Open terminal</button>
+                <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-[#4C3C68] bg-[#15111F] text-sm font-semibold text-white hover:bg-[#211A31] transition">Request access</button>
+              </div>
+              <div className="mt-10 grid grid-cols-[82px_1fr] gap-4 items-center max-w-xl border border-[#403653] bg-[#0D0B12]/80 p-3">
+                <img src="/polyengine-icon-logo.png" alt="" className="h-20 w-20 object-cover" />
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.24em] text-[#8F7DB5]">New mark system</div>
+                  <div className="mt-1 text-sm leading-6 text-slate-300">Faceted, dark, mechanical. The interface now follows the logo instead of looking like a generic AI site.</div>
+                </div>
               </div>
             </div>
 
@@ -91,10 +100,10 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
           </div>
         </section>
 
-        <section id="data" className="border-b border-white/10 bg-[#0B0F15]">
+        <section id="data" className="border-b border-[#403653] bg-[#0D0B12]">
           <div className="max-w-7xl mx-auto px-5 md:px-6 py-12 grid lg:grid-cols-[0.72fr_1.28fr] gap-8">
             <div>
-              <div className="text-xs uppercase tracking-[0.22em] text-cyan-300">Data contract</div>
+              <div className="text-xs uppercase tracking-[0.22em] text-[#BBA6F1]">Data contract</div>
               <h2 className="mt-3 text-3xl font-semibold text-white">Built around the same market inputs you verify on Polymarket.</h2>
             </div>
             <div className="grid md:grid-cols-3 gap-3">
@@ -108,7 +117,7 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
         <section id="process" className="max-w-7xl mx-auto px-5 md:px-6 py-14">
           <div className="grid lg:grid-cols-[0.88fr_1.12fr] gap-8 items-start">
             <div>
-              <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Operating model</div>
+              <div className="text-xs uppercase tracking-[0.22em] text-[#8F7DB5]">Operating model</div>
               <h2 className="mt-3 text-3xl md:text-4xl font-semibold text-white">No generic signals. Just the current round, the price to beat, and whether edge survives fees.</h2>
               <p className="mt-5 text-slate-400 leading-7">
                 The terminal keeps the workflow narrow because this market is narrow. Every decision is tied to one five-minute window and the same displayed market data.
@@ -123,7 +132,7 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
           </div>
         </section>
 
-        <section id="audit" className="border-t border-white/10 bg-[#0B0F15]">
+        <section id="audit" className="border-t border-[#403653] bg-[#0D0B12]">
           <div className="max-w-7xl mx-auto px-5 md:px-6 py-14 grid lg:grid-cols-3 gap-4">
             <FeaturePanel title="Live cockpit" items={["Current Polymarket BTC 5m event link", "Price to beat and current reference", "Up/Down midpoint odds and CLOB bid/ask", "Resolution timer synced from market data"]} />
             <FeaturePanel title="Paper execution" items={["Active position mark value", "Stake, shares, entry price, and fee paid", "Resolved win/loss history", "PnL, win rate, and streak tracking"]} />
@@ -136,21 +145,21 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
 }
 
 function LandingMetric({ value, label }: { value: string; label: string }) {
-  return <div className="p-4"><div className="text-xl md:text-2xl font-mono font-semibold text-white">{value}</div><div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mt-1">{label}</div></div>;
+  return <div className="p-4"><div className="text-xl md:text-2xl font-mono font-semibold text-white">{value}</div><div className="text-[10px] uppercase tracking-[0.18em] text-[#8F7DB5] mt-1">{label}</div></div>;
 }
 
 function FeatureCard({ title, text }: { title: string; text: string }) {
-  return <div className="border border-white/10 bg-white/[0.025] p-5"><h3 className="font-semibold text-white text-lg mb-3">{title}</h3><p className="text-sm text-slate-400 leading-6">{text}</p></div>;
+  return <div className="border border-[#403653] bg-[#100D18] p-5 relative overflow-hidden"><div className="absolute right-0 top-0 h-full w-1 bg-[#6F5A99]" /><h3 className="font-semibold text-white text-lg mb-3">{title}</h3><p className="text-sm text-slate-400 leading-6">{text}</p></div>;
 }
 
 function FeaturePanel({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="border border-white/10 bg-[#080C12] p-5">
+    <div className="border border-[#403653] bg-[#08070C] p-5">
       <h3 className="text-xl font-semibold text-white mb-5">{title}</h3>
       <div className="space-y-2">
         {items.map((item) => (
-          <div key={item} className="flex gap-3 border-t border-white/10 pt-3 text-sm text-slate-300 first:border-t-0 first:pt-0">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 bg-cyan-300" />
+          <div key={item} className="flex gap-3 border-t border-[#403653] pt-3 text-sm text-slate-300 first:border-t-0 first:pt-0">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 bg-[#CBB9FF]" />
             <span className="leading-6">{item}</span>
           </div>
         ))}
@@ -160,14 +169,14 @@ function FeaturePanel({ title, items }: { title: string; items: string[] }) {
 }
 
 function PreviewStat({ label, value, tone }: { label: string; value: string; tone: 'red' | 'pink' | 'green' }) {
-  const color = tone === 'red' ? 'text-red-400' : tone === 'pink' ? 'text-pink-400' : 'text-emerald-400';
-  return <div className="border border-white/10 bg-white/[0.025] p-3"><div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">{label}</div><div className={`text-xl font-mono font-semibold ${color}`}>{value}</div></div>;
+  const color = tone === 'red' ? 'text-red-300' : tone === 'pink' ? 'text-[#CBB9FF]' : 'text-emerald-300';
+  return <div className="border border-[#403653] bg-[#0D0B12] p-3"><div className="text-[10px] uppercase tracking-[0.16em] text-[#8F7DB5] mb-2">{label}</div><div className={`text-xl font-mono font-semibold ${color}`}>{value}</div></div>;
 }
 
 function SourceBlock({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="border border-white/10 bg-[#070A0F] p-5">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+    <div className="border border-[#403653] bg-[#08070C] p-5">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-[#8F7DB5]">{label}</div>
       <div className="mt-3 text-base font-semibold text-white">{value}</div>
       <div className="mt-2 text-sm leading-6 text-slate-500">{detail}</div>
     </div>
@@ -176,13 +185,15 @@ function SourceBlock({ label, value, detail }: { label: string; value: string; d
 
 function TerminalPreview() {
   return (
-    <div className="border border-white/10 bg-[#090D13] shadow-2xl shadow-black/30">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+    <div className="border border-[#4C3C68] bg-[#09070E] shadow-2xl shadow-black/40 relative">
+      <div className="absolute -left-3 top-10 hidden h-48 w-3 bg-[#6F5A99] lg:block" />
+      <div className="absolute -right-3 bottom-12 hidden h-36 w-3 bg-[#CBB9FF] lg:block" />
+      <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
         <div className="flex items-center gap-3">
-          <span className="h-2.5 w-2.5 bg-emerald-400" />
+          <span className="h-2.5 w-2.5 bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.7)]" />
           <span className="text-xs uppercase tracking-[0.2em] text-slate-400">Live market view</span>
         </div>
-        <span className="text-xs font-mono text-slate-500">btc-updown-5m</span>
+        <span className="text-xs font-mono text-[#8F7DB5]">btc-updown-5m</span>
       </div>
       <div className="p-4 md:p-5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -192,32 +203,34 @@ function TerminalPreview() {
           <PreviewStat label="Decision" value="UP" tone="green" />
         </div>
 
-        <div className="mt-4 border border-white/10 bg-[#05080D]">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Reference chart</span>
-            <span className="text-xs text-pink-300">price-to-beat</span>
+        <div className="mt-4 border border-[#403653] bg-[#050408]">
+          <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
+            <span className="text-xs uppercase tracking-[0.18em] text-[#8F7DB5]">Reference chart</span>
+            <span className="text-xs text-[#CBB9FF]">price-to-beat</span>
           </div>
           <div className="relative h-72 overflow-hidden">
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:42px_42px]" />
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.08)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.08)_1px,transparent_1px)] bg-[size:42px_42px]" />
+            <div className="absolute left-4 top-4 z-10 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 font-mono text-sm text-white">$62,104.26</div>
+            <div className="absolute right-4 top-4 z-10 border border-[#4C3C68] bg-[#15111F]/90 px-3 py-2 text-xs uppercase tracking-[0.14em] text-[#CBB9FF]">Chainlink live</div>
             <svg viewBox="0 0 680 280" className="absolute inset-0 h-full w-full">
-              <line x1="0" y1="142" x2="680" y2="142" stroke="#f472b6" strokeDasharray="7 7" opacity="0.75" />
-              <path className="landing-line" d="M0 178 C60 166 96 150 150 160 C218 172 244 108 300 120 C368 134 390 88 448 104 C502 118 536 80 588 72 C632 66 650 78 680 62" fill="none" stroke="#22d3ee" strokeWidth="2" />
-              <path d="M0 218 C92 206 142 218 212 194 C292 166 360 178 436 142 C520 104 594 126 680 94 L680 280 L0 280 Z" fill="rgba(34,211,238,0.08)" />
+              <line x1="0" y1="142" x2="680" y2="142" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.75" />
+              <path className="landing-line" d="M0 178 C60 166 96 150 150 160 C218 172 244 108 300 120 C368 134 390 88 448 104 C502 118 536 80 588 72 C632 66 650 78 680 62" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
+              <path d="M0 218 C92 206 142 218 212 194 C292 166 360 178 436 142 C520 104 594 126 680 94 L680 280 L0 280 Z" fill="rgba(111,90,153,0.18)" />
             </svg>
           </div>
         </div>
 
         <div className="mt-4 grid md:grid-cols-2 gap-3">
-          <div className="border border-blue-400/20 bg-blue-400/5 p-4">
+          <div className="border border-[#4B82D8]/30 bg-[#102037] p-4">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-blue-300">UP</span>
+              <span className="font-semibold text-blue-200">UP</span>
               <span className="font-mono text-white">56.5c</span>
             </div>
             <div className="mt-2 text-xs text-slate-500">Bid 56.0c / Ask 57.0c</div>
           </div>
-          <div className="border border-pink-400/20 bg-pink-400/5 p-4">
+          <div className="border border-[#7F5CCC]/40 bg-[#1B1428] p-4">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-pink-300">DOWN</span>
+              <span className="font-semibold text-[#CBB9FF]">DOWN</span>
               <span className="font-mono text-white">43.5c</span>
             </div>
             <div className="mt-2 text-xs text-slate-500">Bid 43.0c / Ask 44.0c</div>
