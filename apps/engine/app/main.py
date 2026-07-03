@@ -34,14 +34,16 @@ def current_window_bounds(ts: int | None = None) -> tuple[int, int]:
 
 
 def active_window_bounds() -> tuple[int, int]:
-    fallback_start, fallback_end = current_window_bounds()
-    if state.pm_window_end and state.pm_window_end > now_ms() - 5_000:
+    current_time = polymarket_now_ms() if "state" in globals() and state.chainlink_status == "live" else now_ms()
+    fallback_start, fallback_end = current_window_bounds(current_time)
+    if state.pm_window_end and state.pm_window_end > current_time - 5_000:
         return state.pm_window_start or state.pm_window_end - 5 * 60 * 1000, state.pm_window_end
     return fallback_start, fallback_end
 
 
 def clear_stale_polymarket_window() -> None:
-    if state.pm_window_end and now_ms() > state.pm_window_end + 5_000:
+    current_time = polymarket_now_ms() if "state" in globals() and state.chainlink_status == "live" else now_ms()
+    if state.pm_window_end and current_time > state.pm_window_end + 5_000:
         old_slug = state.pm_event_slug
         state.pm_window_start = 0
         state.pm_window_end = 0
@@ -53,6 +55,7 @@ def clear_stale_polymarket_window() -> None:
         state.best_depth_down = 0
         state.price_to_beat_source = "fallback"
         state.price_to_beat_window_id = ""
+        state.price_to_beat_distance_ms = 10**12
         if old_slug:
             log("INFO", f"Rolled past expired Polymarket window {old_slug}; waiting for the next BTC 5m market.")
 
@@ -112,6 +115,7 @@ class EngineState:
     price_to_beat: float = 0.0
     price_to_beat_source: str = "fallback"
     price_to_beat_window_id: str = ""
+    price_to_beat_distance_ms: int = 10**12
     pm_window_start: int = 0
     pm_window_end: int = 0
     pm_event_slug: str = ""
@@ -133,6 +137,8 @@ class EngineState:
     last_binance_rest_sync: float = 0.0
     last_polymarket_sync: float = 0.0
     last_chainlink_sync: float = 0.0
+    last_chainlink_price_timestamp: int = 0
+    polymarket_clock_offset_ms: int = 0
     brain_bias: float = 0.0
     brain_direction: str = "WAIT"
     brain_signal_age: int = 0
@@ -148,6 +154,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def polymarket_now_ms() -> int:
+    return now_ms() + state.polymarket_clock_offset_ms
 
 
 class ControlBody(BaseModel):
@@ -420,6 +430,10 @@ async def sync_chainlink_reference() -> None:
 
 def apply_polymarket_chainlink_price(price: float, timestamp_ms: int | None = None) -> None:
     timestamp_ms = timestamp_ms or now_ms()
+    if timestamp_ms < state.last_chainlink_price_timestamp:
+        maybe_capture_price_to_beat(price, timestamp_ms)
+        return
+    state.last_chainlink_price_timestamp = timestamp_ms
     state.chainlink_price = price
     state.current_price = price
     state.indicator_price = price
@@ -452,12 +466,18 @@ def maybe_capture_price_to_beat(price: float, timestamp_ms: int) -> None:
     if not state.pm_window_start or not state.pm_window_end:
         return
     window_id = str(state.pm_window_start)
-    if state.price_to_beat_source == "polymarket" and state.price_to_beat_window_id == window_id:
+    distance = abs(timestamp_ms - state.pm_window_start)
+    if (
+        state.price_to_beat_source == "polymarket"
+        and state.price_to_beat_window_id == window_id
+        and distance >= state.price_to_beat_distance_ms
+    ):
         return
-    if state.pm_window_start - 1_000 <= timestamp_ms <= state.pm_window_start + 12_000:
+    if state.pm_window_start - 5_000 <= timestamp_ms <= state.pm_window_start + 60_000:
         state.price_to_beat = price
         state.price_to_beat_source = "polymarket"
         state.price_to_beat_window_id = window_id
+        state.price_to_beat_distance_ms = distance
         log("INFO", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} for {state.pm_event_slug or window_id}.")
 
 
@@ -497,6 +517,8 @@ async def polymarket_rtds_loop() -> None:
                         continue
                     price = float(value)
                     ts = int(payload.get("timestamp") or msg.get("timestamp") or now_ms())
+                    if msg.get("timestamp"):
+                        state.polymarket_clock_offset_ms = int(msg["timestamp"]) - now_ms()
                     apply_polymarket_chainlink_price(price, ts)
         except Exception as exc:
             state.chainlink_status = "degraded" if state.chainlink_price else state.chainlink_status
@@ -506,7 +528,7 @@ async def polymarket_rtds_loop() -> None:
 
 async def sync_polymarket_hint() -> None:
     try:
-        start, _ = current_window_bounds()
+        start, _ = current_window_bounds(polymarket_now_ms() if state.chainlink_status == "live" else now_ms())
         slug = f"btc-updown-5m-{start // 1000}"
         event = None
         try:
@@ -553,12 +575,14 @@ async def sync_polymarket_hint() -> None:
             state.price_to_beat = 0
             state.price_to_beat_source = "fallback"
             state.price_to_beat_window_id = ""
+            state.price_to_beat_distance_ms = 10**12
         parse_market_tokens(market)
         parsed_strike = parse_price_to_beat(event, market)
         if parsed_strike:
             state.price_to_beat = parsed_strike
             state.price_to_beat_source = "polymarket"
             state.price_to_beat_window_id = str(state.pm_window_start or "")
+            state.price_to_beat_distance_ms = 0
         prices = market.get("outcomePrices") or []
         if isinstance(prices, str):
             prices = json.loads(prices)
@@ -1041,6 +1065,7 @@ def analytics() -> dict:
 def window_payload() -> dict:
     clear_stale_polymarket_window()
     start, end = active_window_bounds()
+    current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
     return {
         "id": str(start),
         "title": "BTC Up or Down - 5m",
@@ -1062,7 +1087,7 @@ def window_payload() -> dict:
         "down_ask": state.down_ask,
         "spread": max(state.up_ask - state.up_bid, state.down_ask - state.down_bid),
         "liquidity": state.liquidity,
-        "time_left_seconds": max(0, (end - now_ms()) / 1000),
+        "time_left_seconds": max(0, (end - current_time) / 1000),
     }
 
 

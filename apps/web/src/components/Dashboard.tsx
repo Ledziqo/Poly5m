@@ -191,7 +191,7 @@ export default function Dashboard() {
               <PriceChart data={candles} currentPrice={data.window?.current_price || null} priceToBeat={data.window?.price_to_beat || null} />
             </div>
             <div className="md:col-span-1">
-              <ResolutionTimer targetTimestamp={data.window?.window_end || null} />
+              <ResolutionTimer targetTimestamp={data.window?.window_end || null} secondsRemaining={data.window?.time_left_seconds ?? null} />
             </div>
           </div>
 
