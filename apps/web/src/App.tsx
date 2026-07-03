@@ -63,49 +63,39 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
         <section className="relative overflow-hidden border-b border-[#403653]">
           <div className="absolute inset-0 opacity-[0.16] bg-[linear-gradient(90deg,#6D5A91_1px,transparent_1px),linear-gradient(#6D5A91_1px,transparent_1px)] bg-[size:54px_54px]" />
           <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#3A2A5C]/25 to-transparent" />
-          <div className="relative max-w-7xl mx-auto px-5 md:px-6 py-12 md:py-16 grid lg:grid-cols-[0.9fr_1.1fr] gap-10 items-stretch">
-            <div className="border border-[#4C3C68] bg-[#0B0910]/90 p-6 md:p-8 flex flex-col justify-between min-h-[520px] shadow-2xl shadow-black/40">
-              <div>
-                <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-40 w-40 md:h-56 md:w-56 object-cover" loading="eager" fetchPriority="high" />
-                <div className="mt-8">
+          <div className="relative max-w-7xl mx-auto px-5 md:px-6 py-12 md:py-16 grid lg:grid-cols-[0.96fr_1.04fr] gap-12 items-center">
+            <div>
+              <div className="flex items-center gap-5 md:gap-7">
+                <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-28 w-28 md:h-40 md:w-40 object-cover shrink-0" loading="eager" fetchPriority="high" />
+                <div>
                   <div className="text-4xl md:text-6xl font-semibold uppercase tracking-[0.18em] text-white">PolyEngine</div>
-                  <div className="mt-4 inline-flex border border-[#6F5A99] bg-[#1B1428] px-4 py-2 text-xs md:text-sm font-semibold uppercase tracking-[0.24em] text-[#CBB9FF]">
-                    BTC 5m terminal
-                  </div>
+                  <div className="mt-3 text-sm md:text-lg font-semibold uppercase tracking-[0.28em] text-[#CBB9FF]">BTC 5m terminal</div>
                 </div>
               </div>
-              <div className="mt-10 border-t border-[#403653] pt-5">
-                <div className="text-[10px] uppercase tracking-[0.24em] text-[#8F7DB5]">Built for one market</div>
-                <div className="mt-2 max-w-md text-sm md:text-base leading-7 text-slate-300">
-                  Live Polymarket BTC Up/Down rounds, Chainlink reference price, CLOB odds, and simulated execution in a private cockpit.
-                </div>
-              </div>
+              <p className="mt-8 max-w-xl text-base md:text-lg leading-8 text-[#B7AFC7]">
+                Live Polymarket BTC Up/Down rounds, Chainlink reference price, CLOB odds, and simulated execution in a private cockpit.
+              </p>
+              <ProductPreview />
             </div>
 
-            <div>
-              <div className="h-full border border-[#403653] bg-[#0D0B12]/90 p-6 md:p-8 flex flex-col justify-center">
-                <div className="inline-flex w-fit border border-[#6F5A99] bg-[#1B1428] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#CBB9FF]">
-                  Private Polymarket execution lab
-                </div>
-                <h1 className="mt-6 text-4xl md:text-6xl font-semibold leading-[1.01] tracking-tight text-white">
-                  A sharper command center for Bitcoin's 5-minute knife edge.
-                </h1>
-                <p className="mt-6 max-w-2xl text-base md:text-lg leading-8 text-[#B7AFC7]">
-                  PolyEngine tracks the live Polymarket BTC Up/Down round with Chainlink reference price, CLOB odds, entry discipline, and a decision audit designed for one market only.
-                </p>
-                <div className="mt-8 grid grid-cols-3 border border-[#443757] divide-x divide-[#443757] max-w-2xl bg-[#08070C]">
-                  <LandingMetric value="1:1" label="market source" />
-                  <LandingMetric value="CLOB" label="live odds" />
-                  <LandingMetric value="RTDS" label="btc feed" />
-                </div>
-                <div className="mt-8 grid md:grid-cols-2 gap-3 max-w-2xl">
-                  <SourceBlock label="Round clock" value="Market synced" detail="Timer follows the active BTC 5m event window." />
-                  <SourceBlock label="Execution model" value="Fee-aware" detail="Entries use bid/ask, fee drag, and edge checks." />
-                </div>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <button onClick={() => onNav('/login')} className="h-12 px-5 bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition shadow-[0_0_28px_rgba(143,125,181,0.18)]">Open terminal</button>
-                  <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-[#4C3C68] bg-[#15111F] text-sm font-semibold text-white hover:bg-[#211A31] transition">Request access</button>
-                </div>
+            <div className="lg:pl-4">
+              <div className="inline-flex w-fit border border-[#6F5A99] bg-[#1B1428] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#CBB9FF]">
+                Private Polymarket execution lab
+              </div>
+              <h1 className="mt-6 text-4xl md:text-6xl font-semibold leading-[1.01] tracking-tight text-white">
+                A sharper command center for Bitcoin's 5-minute knife edge.
+              </h1>
+              <p className="mt-6 max-w-2xl text-base md:text-lg leading-8 text-[#B7AFC7]">
+                PolyEngine tracks the live Polymarket BTC Up/Down round with market-synced timing, price-to-beat, CLOB odds, entry discipline, and a decision audit designed for one market only.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-[#8F7DB5]">
+                <span className="border-l border-[#6F5A99] pl-3">1:1 market source</span>
+                <span className="border-l border-[#6F5A99] pl-3">live CLOB odds</span>
+                <span className="border-l border-[#6F5A99] pl-3">RTDS BTC feed</span>
+              </div>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <button onClick={() => onNav('/login')} className="h-12 px-5 bg-[#CBB9FF] text-sm font-bold text-[#100A1A] hover:bg-[#E7E0F8] transition shadow-[0_0_28px_rgba(143,125,181,0.18)]">Open terminal</button>
+                <button onClick={() => onNav('/request-access')} className="h-12 px-5 border border-[#4C3C68] bg-[#15111F] text-sm font-semibold text-white hover:bg-[#211A31] transition">Request access</button>
               </div>
             </div>
           </div>
@@ -155,10 +145,6 @@ function Landing({ onNav }: { onNav: (path: string) => void }) {
   );
 }
 
-function LandingMetric({ value, label }: { value: string; label: string }) {
-  return <div className="p-4"><div className="text-xl md:text-2xl font-mono font-semibold text-white">{value}</div><div className="text-[10px] uppercase tracking-[0.18em] text-[#8F7DB5] mt-1">{label}</div></div>;
-}
-
 function FeatureCard({ title, text }: { title: string; text: string }) {
   return <div className="border border-[#403653] bg-[#100D18] p-5 relative overflow-hidden"><div className="absolute right-0 top-0 h-full w-1 bg-[#6F5A99]" /><h3 className="font-semibold text-white text-lg mb-3">{title}</h3><p className="text-sm text-slate-400 leading-6">{text}</p></div>;
 }
@@ -190,6 +176,44 @@ function SourceBlock({ label, value, detail }: { label: string; value: string; d
       <div className="text-[10px] uppercase tracking-[0.18em] text-[#8F7DB5]">{label}</div>
       <div className="mt-3 text-base font-semibold text-white">{value}</div>
       <div className="mt-2 text-sm leading-6 text-slate-500">{detail}</div>
+    </div>
+  );
+}
+
+function ProductPreview() {
+  return (
+    <div className="mt-8 border border-[#403653] bg-[#08070C]/95 shadow-2xl shadow-black/35">
+      <div className="flex items-center justify-between border-b border-[#403653] px-4 py-3">
+        <span className="text-[10px] uppercase tracking-[0.22em] text-[#8F7DB5]">Live terminal preview</span>
+        <span className="font-mono text-xs text-[#CBB9FF]">BTC 5m</span>
+      </div>
+      <div className="grid md:grid-cols-[1.2fr_0.8fr] gap-0">
+        <div className="relative h-56 border-b border-[#403653] md:border-b-0 md:border-r overflow-hidden">
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(203,185,255,0.07)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.07)_1px,transparent_1px)] bg-[size:36px_36px]" />
+          <div className="absolute left-4 top-4 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 font-mono text-sm text-white">$62,104.26</div>
+          <svg viewBox="0 0 520 220" className="absolute inset-0 h-full w-full">
+            <line x1="0" y1="116" x2="520" y2="116" stroke="#CBB9FF" strokeDasharray="7 7" opacity="0.72" />
+            <path className="landing-line" d="M0 154 C44 140 76 144 112 128 C162 104 196 130 238 110 C294 84 326 96 368 74 C422 46 468 72 520 44" fill="none" stroke="#A48BE8" strokeWidth="2.5" />
+            <path d="M0 186 C78 178 132 184 196 158 C270 128 338 138 412 96 C462 70 492 82 520 62 L520 220 L0 220 Z" fill="rgba(111,90,153,0.18)" />
+          </svg>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <PreviewStat label="Timer" value="01:48" tone="red" />
+            <PreviewStat label="Edge" value="+3.8c" tone="green" />
+          </div>
+          <div className="mt-3 border border-[#403653] bg-[#1B1428] p-3">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-[#CBB9FF]">UP</span>
+              <span className="font-mono text-white">56.5c</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-500">Bid 56.0c / Ask 57.0c</div>
+          </div>
+          <div className="mt-3 text-xs leading-5 text-slate-400">
+            Price, timer, and odds pinned to Polymarket market data.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
