@@ -20,6 +20,8 @@ from pydantic import BaseModel
 Direction = Literal["UP", "DOWN", "WAIT"]
 DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
+ENTRY_MIN_ELAPSED_SECONDS = 60
+ENTRY_CUTOFF_SECONDS = 150
 
 
 def now_ms() -> int:
@@ -1001,14 +1003,16 @@ def compute_decision() -> dict:
     raw_best_edge = max(edge_up, edge_down)
     forced = state.settings.skipped_windows >= state.settings.forced_cadence_every - 1
 
-    entry_window_open = time_left > 120
+    entry_window_open = elapsed >= ENTRY_MIN_ELAPSED_SECONDS and time_left > ENTRY_CUTOFF_SECONDS
+    before_entry_window = elapsed < ENTRY_MIN_ELAPSED_SECONDS
+    after_entry_window = time_left <= ENTRY_CUTOFF_SECONDS
     data_reasons = [
         f"Autonomous brain bias is {brain['smoothed_bias']:+.3f} after smoothing raw signal {brain['raw_bias']:+.3f}; current stable read is {brain['side']} with {brain['signal_age']} signal-memory ticks.",
         f"Market read is {read['regime']}: agreement score {read['agreement']:+d}/5, trend strength {read['trend_strength']:.2f}, chop pressure {read['chop_penalty']:.2f}.",
         f"Indicator stack: EMA slope {indicators['ema_slope'] * 100:+.3f}%, VWAP distance {indicators['vwap_distance'] * 100:+.3f}%, RSI {indicators['rsi']:.1f}, acceleration {indicators['acceleration'] * 100:+.3f}%, orderbook imbalance {indicators['orderbook_imbalance']:+.2f}.",
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
         f"Fee-adjusted UP edge is {edge_up * 100:+.2f}c and DOWN edge is {edge_down * 100:+.2f}c after {(fee * 100):.2f}% taker fee; stable side edge is {best_edge * 100:+.2f}c.",
-        f"Entry window has {time_left:.0f}s left; new entries close at 2:00 remaining.",
+        f"Entry discipline: wait through the first 60s for signal formation, then enter only before 2:30 remaining unless forced cadence is already active.",
     ]
     if brain["flip_blocked"]:
         data_reasons.append(f"Autonomous anti-noise guard held {brain['previous']} instead of chasing a weak {brain['candidate']} twitch.")
@@ -1019,30 +1023,52 @@ def compute_decision() -> dict:
         confidence = min(92, confidence + 4)
     elif read["regime"] in ("choppy", "exhaustion-risk"):
         confidence = max(5, confidence - 7)
+    min_confidence = {"safe": 72, "balanced": 64, "aggressive": 56}.get(state.settings.risk_mode, 64)
+    stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 2
+    learned_penalty = memory["loss_streak"] >= 2 and not forced
 
     if not entry_window_open and not state.active_trade:
+        if before_entry_window:
+            reason = "No new entry allowed during the first minute; collecting pattern, momentum, and order-book confirmation."
+            no_trade_reason = "First-minute observation window."
+        elif after_entry_window:
+            reason = "No new entry allowed because 2:30 cutoff has passed."
+            no_trade_reason = "Entry window closed."
+        else:
+            reason = "No new entry allowed outside the configured decision window."
+            no_trade_reason = "Outside entry window."
         return {
             **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, forced, 0, "WAIT"),
             "confidence": confidence,
-            "reasons": data_reasons + ["No new entry allowed because less than 2:00 remains."],
-            "no_trade_reason": "Entry window closed.",
+            "reasons": data_reasons + [reason],
+            "no_trade_reason": no_trade_reason,
         }
 
     if forced:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Forced cadence is active: two windows were skipped, so the bot must take the lesser-bad side. Selected {best_side}."],
+            "reasons": data_reasons + [f"Forced cadence is active after two skipped windows, so this third window must take the best available side before cutoff. Selected {best_side}."],
         }
 
-    if best_edge >= min_edge and entry_window_open:
+    if best_edge >= min_edge and confidence >= min_confidence and stable_enough and not learned_penalty and entry_window_open:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Selected {best_side} because its net edge beats the regime-adjusted {min_edge * 100:.1f}c threshold."],
+            "reasons": data_reasons + [f"Selected {best_side} because net edge beats the regime-adjusted {min_edge * 100:.1f}c threshold, confidence is {confidence}% against the {min_confidence}% gate, and the stable signal has persisted."],
         }
 
+    guard_reasons = []
+    if best_edge < min_edge:
+        guard_reasons.append(f"edge {best_edge * 100:+.2f}c is below the {min_edge * 100:.1f}c threshold")
+    if confidence < min_confidence:
+        guard_reasons.append(f"confidence {confidence}% is below the {min_confidence}% risk-mode gate")
+    if not stable_enough:
+        guard_reasons.append("signal has not persisted for enough brain ticks")
+    if learned_penalty:
+        guard_reasons.append("recent loss streak raised the learning guard")
+    guard_text = "; ".join(guard_reasons) if guard_reasons else "signal is not strong enough yet"
     return {
         **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
-        "reasons": data_reasons + [f"Waiting because stable-side edge is {best_edge * 100:+.2f}c and raw best edge is {raw_best_edge * 100:+.2f}c, below the risk-mode threshold or not strong enough yet."],
+        "reasons": data_reasons + [f"Waiting because {guard_text}; raw best edge is {raw_best_edge * 100:+.2f}c."],
         "no_trade_reason": "No fee-adjusted edge yet.",
     }
 
@@ -1221,7 +1247,7 @@ async def maybe_trade() -> None:
         log("TRADE", f"Entered {direction} at {ask * 100:.1f}c with ${stake:.2f}. {trade.reason}")
     else:
         current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
-        if (end - current_time) <= 120_000:
+        if (end - current_time) <= ENTRY_CUTOFF_SECONDS * 1000:
             state.processed_window_id = window_id
             state.settings.skipped_windows += 1
             save_setting("skipped_windows", state.settings.skipped_windows)
