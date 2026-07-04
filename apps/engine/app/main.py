@@ -22,6 +22,8 @@ DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
 ENTRY_MIN_ELAPSED_SECONDS = 35
 ENTRY_FORCE_SECONDS = 180
+FORCED_EDGE_FLOOR = -0.018
+FORCED_MIN_CONFIDENCE = 62
 
 
 def now_ms() -> int:
@@ -700,7 +702,19 @@ def parse_price_to_beat(event: dict, market: dict) -> float | None:
 def parse_market_tokens(market: dict) -> None:
     state.condition_id = str(market.get("conditionId") or market.get("condition_id") or state.condition_id or "")
     token_ids = parse_jsonish(market.get("clobTokenIds") or market.get("clob_token_ids") or market.get("tokenIds") or [])
-    outcomes = parse_jsonish(market.get("outcomes") or ["Up", "Down"])
+    outcomes = parse_jsonish(market.get("outcomes") or market.get("shortOutcomes") or ["Up", "Down"])
+    token_rows = parse_jsonish(market.get("tokens") or market.get("outcomeTokens") or [])
+    if (not isinstance(token_ids, list) or len(token_ids) < 2) and isinstance(token_rows, list):
+        token_ids = []
+        outcomes = []
+        for row in token_rows:
+            if not isinstance(row, dict):
+                continue
+            token = row.get("token_id") or row.get("tokenId") or row.get("clobTokenId") or row.get("id")
+            outcome = row.get("outcome") or row.get("name") or row.get("title")
+            if token:
+                token_ids.append(str(token))
+                outcomes.append(str(outcome or ""))
     if isinstance(token_ids, list) and len(token_ids) >= 2:
         pairs = list(zip([str(o).lower() for o in outcomes], [str(t) for t in token_ids]))
         up = next((t for o, t in pairs if "up" in o or "yes" in o), token_ids[0])
@@ -712,8 +726,16 @@ def parse_market_tokens(market: dict) -> None:
 def book_best(book: dict) -> tuple[float, float, float]:
     bids = book.get("bids") or []
     asks = book.get("asks") or []
-    bid_levels = sorted([(float(x.get("price", 0)), float(x.get("size", 0))) for x in bids], reverse=True)
-    ask_levels = sorted([(float(x.get("price", 1)), float(x.get("size", 0))) for x in asks])
+
+    def level(row, default_price: float) -> tuple[float, float]:
+        if isinstance(row, dict):
+            return float(row.get("price", default_price) or default_price), float(row.get("size", 0) or 0)
+        if isinstance(row, (list, tuple)) and len(row) >= 2:
+            return float(row[0] or default_price), float(row[1] or 0)
+        return default_price, 0.0
+
+    bid_levels = sorted([level(x, 0) for x in bids if x], reverse=True)
+    ask_levels = sorted([level(x, 1) for x in asks if x])
     bid = bid_levels[0][0] if bid_levels else 0
     ask = ask_levels[0][0] if ask_levels else 1
     depth = sum(size for _, size in ask_levels[:8])
@@ -722,6 +744,8 @@ def book_best(book: dict) -> tuple[float, float, float]:
 
 async def sync_clob_books() -> None:
     if not state.up_token_id or not state.down_token_id:
+        if state.pm_event_slug:
+            log("WARN", f"Polymarket market found ({state.pm_event_slug}) but CLOB token ids are missing; using Gamma odds only.")
         return
     try:
         up_book, down_book = await asyncio.gather(
@@ -911,7 +935,7 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
 
     previous_direction = state.brain_direction
     previous_bias = state.brain_bias
-    smoothed = previous_bias * 0.72 + raw_bias * 0.28
+    smoothed = previous_bias * 0.82 + raw_bias * 0.18
     candidate = "UP" if smoothed > 0 else "DOWN"
     margin = abs(smoothed)
     edge_gap = abs(edge_up - edge_down)
@@ -921,9 +945,9 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
     else:
         state.brain_signal_age = 1
 
-    required_margin = 0.065
+    required_margin = 0.078
     if previous_direction in ("UP", "DOWN") and candidate != previous_direction:
-        required_margin = 0.11
+        required_margin = 0.145
 
     stable_side = previous_direction
     flip_blocked = False
@@ -940,7 +964,7 @@ def brain_filter(raw_side: str, raw_bias: float, edge_up: float, edge_down: floa
     state.brain_bias = smoothed
     state.brain_direction = stable_side
 
-    confidence = int(clamp(42 + margin * 210 + edge_gap * 850 + min(abs(micro_momentum), 2.2) * 9 + state.brain_signal_age * 2, 8, 88))
+    confidence = int(clamp(38 + margin * 205 + edge_gap * 760 + min(abs(micro_momentum), 2.2) * 7 + state.brain_signal_age * 2, 8, 86))
     return {
         "side": stable_side,
         "smoothed_bias": smoothed,
@@ -1151,14 +1175,16 @@ def compute_decision() -> dict:
         return wait_decision("Waiting for confirmed BTC price and price-to-beat.")
 
     has_chainlink = state.chainlink_status == "live" or REFERENCE_MODE == "binance"
-    has_real_odds = state.liquidity > 0
+    has_book_odds = bool(state.up_token_id and state.down_token_id and (state.best_depth_up > 0 or state.best_depth_down > 0))
+    has_gamma_odds = state.liquidity > 0 and (abs(state.gamma_up_price - 0.5) > 0.015 or abs(state.gamma_down_price - 0.5) > 0.015)
+    has_real_odds = bool(state.pm_event_slug and (has_book_odds or has_gamma_odds))
     if not has_chainlink:
         decision = wait_decision("Waiting for Chainlink/reference BTC/USD before trading.")
         decision["reasons"].append("Exchange price can update the chart, but entries require the configured reference source.")
         return decision
     if not has_real_odds:
         decision = wait_decision("Waiting for real Polymarket BTC 5m odds/liquidity before considering a trade.")
-        decision["reasons"].append("Chainlink/reference is live, but the bot still needs active Polymarket odds and liquidity.")
+        decision["reasons"].append("Chainlink/reference is live, but the bot still needs the active BTC 5m event plus CLOB book depth or non-placeholder Gamma odds.")
         return decision
 
     indicators = indicator_pack()
@@ -1229,7 +1255,7 @@ def compute_decision() -> dict:
         f"Bayesian probability blends model {model_fair_up * 100:.0f}% UP with market prior {bayes['market_up'] * 100:.0f}% UP; conflict {bayes['conflict'] * 100:.0f}%, distance vote {bayes['distance_vote'] * 100:.0f}%, trend vote {bayes['trend_vote'] * 100:.0f}%.",
         f"Fee-adjusted raw edge is UP {edge_up * 100:+.2f}c and DOWN {edge_down * 100:+.2f}c; learned edge is UP {learned_edge_up * 100:+.2f}c and DOWN {learned_edge_down * 100:+.2f}c after spread/liquidity/overpay penalties.",
         f"Calibration read for {best_side}: historical bucket rate {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} matching confidence samples; setup tags {', '.join(selected_learning['tags'][:4])}.",
-        f"Entry discipline: analyze immediately, enter when confidence is ready, and force the strongest side by 3:00 remaining so no round is skipped.",
+        f"Entry discipline: analyze immediately, enter when confidence is ready, and protect capital when the 3:00 cutoff still shows a weak or expensive setup.",
     ]
     if brain["flip_blocked"]:
         data_reasons.append(f"Autonomous anti-noise guard held {brain['previous']} instead of chasing a weak {brain['candidate']} twitch.")
@@ -1262,10 +1288,31 @@ def compute_decision() -> dict:
             "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
+    force_blockers = []
+    if best_edge < FORCED_EDGE_FLOOR:
+        force_blockers.append(f"best learned edge {best_edge * 100:+.2f}c is worse than the forced-entry floor {FORCED_EDGE_FLOOR * 100:+.1f}c")
+    if confidence < FORCED_MIN_CONFIDENCE:
+        force_blockers.append(f"confidence {confidence}% is below the forced-entry floor {FORCED_MIN_CONFIDENCE}%")
+    if read["regime"] == "choppy" and memory["loss_streak"] >= 1:
+        force_blockers.append("market is choppy after a recent loss, so forcing would repeat the same failure pattern")
+    if selected_entry_price > 0.74 and best_edge < 0.02:
+        force_blockers.append(f"{best_side} ask is expensive at {selected_entry_price * 100:.1f}c without enough edge after fees")
+    if spread > 0.055:
+        force_blockers.append(f"spread is too wide at {spread * 100:.1f}c for a forced entry")
+
+    if force_window_reached and not state.active_trade and force_blockers:
+        return {
+            **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "WAIT"),
+            "reasons": data_reasons + [f"Capital-protection skip at the 3:00 cutoff: {'; '.join(force_blockers)}."],
+            "no_trade_reason": "Forced entry rejected by capital protection.",
+            "lock_window": True,
+            "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
+        }
+
     if force_window_reached and not state.active_trade:
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Mandatory round entry triggered at 3:00 remaining. Selected {best_side}, the strongest available side after the analysis window."],
+            "reasons": data_reasons + [f"Cutoff entry allowed at 3:00 remaining. Selected {best_side} because it passed the forced-entry edge, confidence, spread, and price-quality floors."],
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
@@ -1285,9 +1332,17 @@ def compute_decision() -> dict:
         }
 
     if forced:
+        if force_blockers:
+            return {
+                **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "WAIT"),
+                "reasons": data_reasons + [f"Capital-protection skip: {'; '.join(force_blockers)}."],
+                "no_trade_reason": "Forced entry rejected by capital protection.",
+                "lock_window": True,
+                "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
+            }
         return {
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Mandatory round entry selected {best_side}, the strongest available side."],
+            "reasons": data_reasons + [f"Cutoff entry selected {best_side}, the strongest available side that still passed capital-protection floors."],
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning),
         }
 
@@ -1493,6 +1548,12 @@ async def maybe_trade() -> None:
         save_setting("skipped_windows", state.settings.skipped_windows)
         log("TRADE", f"Entered {direction} at {ask * 100:.1f}c with ${stake:.2f}. {trade.reason}")
     else:
+        if decision.get("lock_window"):
+            state.processed_window_id = window_id
+            state.settings.skipped_windows += 1
+            save_setting("skipped_windows", state.settings.skipped_windows)
+            reason = decision.get("no_trade_reason") or (decision.get("reasons") or ["Capital-protection skip."])[-1]
+            log("INFO", f"Skipped this BTC 5m round: {reason}")
         return
 
 
@@ -1640,10 +1701,8 @@ async def backtests():
 async def control(body: ControlBody):
     if body.action == "start":
         state.settings.bot_state = "running"
-        start, _ = active_window_bounds()
-        state.processed_window_id = str(start)
         save_setting("bot_state", state.settings.bot_state)
-        log("INFO", "Bot armed for the next round. Current active window will be ignored; every new round must enter by 3:00 remaining.")
+        log("INFO", "Bot started. Current round is eligible immediately if it passes live odds, confidence, edge, spread, and cutoff checks.")
     elif body.action == "stop":
         state.settings.bot_state = "stopped"
         save_setting("bot_state", state.settings.bot_state)

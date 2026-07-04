@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 
-export default function ResolutionTimer({ targetTimestamp, serverTime }: { targetTimestamp: number | null, serverTime?: number | null }) {
+export default function ResolutionTimer({ targetTimestamp, serverTime, timeLeftSeconds }: { targetTimestamp: number | null, serverTime?: number | null, timeLeftSeconds?: number | null }) {
   const [timeLeft, setTimeLeft] = useState<{ m: string, s: string }>({ m: '00', s: '00' });
+  const syncRef = useRef({ leftMs: 0, syncedAt: performance.now() });
 
   useEffect(() => {
     if (!targetTimestamp) {
@@ -10,11 +11,16 @@ export default function ResolutionTimer({ targetTimestamp, serverTime }: { targe
       return;
     }
 
-    const syncedAt = Date.now();
-    const clockOffset = serverTime ? serverTime - syncedAt : 0;
+    const browserNow = Date.now();
+    const clockOffset = serverTime ? serverTime - browserNow : 0;
+    syncRef.current = {
+      leftMs: Math.max(0, timeLeftSeconds != null ? timeLeftSeconds * 1000 : targetTimestamp - (browserNow + clockOffset)),
+      syncedAt: performance.now(),
+    };
 
     const updateTimer = () => {
-      const diff = Math.max(0, targetTimestamp - (Date.now() + clockOffset));
+      const elapsed = performance.now() - syncRef.current.syncedAt;
+      const diff = Math.max(0, syncRef.current.leftMs - elapsed);
 
       if (diff <= 0) {
         setTimeLeft({ m: '00', s: '00' });
@@ -32,7 +38,7 @@ export default function ResolutionTimer({ targetTimestamp, serverTime }: { targe
     const interval = setInterval(updateTimer, 100);
 
     return () => clearInterval(interval);
-  }, [targetTimestamp, serverTime]);
+  }, [targetTimestamp, serverTime, timeLeftSeconds]);
 
   return (
     <motion.div
