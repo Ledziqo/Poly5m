@@ -22,8 +22,8 @@ DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
 ENTRY_MIN_ELAPSED_SECONDS = 35
 ENTRY_FORCE_SECONDS = 180
-FORCED_EDGE_FLOOR = -0.018
-FORCED_MIN_CONFIDENCE = 62
+FORCED_EDGE_FLOOR = -0.006
+FORCED_MIN_CONFIDENCE = 68
 
 
 def now_ms() -> int:
@@ -260,6 +260,16 @@ def init_db() -> None:
           pnl REAL NOT NULL,
           notes TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS learning_samples (
+          trade_id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          direction TEXT NOT NULL,
+          outcome TEXT NOT NULL,
+          forced_trade INTEGER NOT NULL,
+          pnl REAL NOT NULL,
+          tags TEXT NOT NULL,
+          features TEXT NOT NULL
+        );
         """)
         columns = {row["name"] for row in con.execute("PRAGMA table_info(trades)").fetchall()}
         if "entry_features" not in columns:
@@ -318,6 +328,31 @@ def persist_trade(trade: Trade) -> None:
                 trade.entry_price, trade.exit_price, trade.price_to_beat, trade.btc_entry_price,
                 trade.shares_count, trade.stake, trade.fee_paid, trade.pnl, trade.actual_outcome,
                 1 if trade.forced_trade else 0, trade.reason, json.dumps(trade.entry_features, separators=(",", ":")),
+            ),
+        )
+
+
+def persist_learning_sample(trade: Trade) -> None:
+    if trade.status != "RESOLVED" or trade.actual_outcome not in ("WIN", "LOSS"):
+        return
+    features = trade.entry_features or {}
+    tags = features.get("tags") or []
+    with db() as con:
+        con.execute(
+            """
+            INSERT OR REPLACE INTO learning_samples(
+              trade_id,timestamp,direction,outcome,forced_trade,pnl,tags,features
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                trade.id,
+                trade.timestamp,
+                trade.direction,
+                trade.actual_outcome,
+                1 if trade.forced_trade else 0,
+                trade.pnl,
+                json.dumps(tags, separators=(",", ":")),
+                json.dumps(features, separators=(",", ":")),
             ),
         )
 
@@ -860,20 +895,20 @@ def indicator_pack() -> dict:
 
 
 def pattern_memory() -> dict:
-    resolved = [t for t in state.history if t.status == "RESOLVED"]
-    last = resolved[-12:]
+    learned = learning_rows(80)
+    last = learned[-18:]
     direction_stats = {"UP": {"wins": 0, "total": 0}, "DOWN": {"wins": 0, "total": 0}}
-    for trade in last:
-        if trade.direction in direction_stats:
-            direction_stats[trade.direction]["total"] += 1
-            if trade.actual_outcome == "WIN":
-                direction_stats[trade.direction]["wins"] += 1
+    for row in last:
+        if row["direction"] in direction_stats:
+            direction_stats[row["direction"]]["total"] += 1
+            if row["outcome"] == "WIN":
+                direction_stats[row["direction"]]["wins"] += 1
     up_rate = direction_stats["UP"]["wins"] / direction_stats["UP"]["total"] if direction_stats["UP"]["total"] else 0.5
     down_rate = direction_stats["DOWN"]["wins"] / direction_stats["DOWN"]["total"] if direction_stats["DOWN"]["total"] else 0.5
     recent_bias = clamp((up_rate - down_rate) * 0.18, -0.12, 0.12)
     loss_streak = 0
-    for trade in reversed(resolved):
-        if trade.actual_outcome == "LOSS":
+    for row in reversed(learned):
+        if row["outcome"] == "LOSS":
             loss_streak += 1
         else:
             break
@@ -1007,22 +1042,60 @@ def setup_tags(direction: str, confidence: int, forced: bool, read: dict, indica
     return tags
 
 
-def learned_rate(tag: str, direction: str | None = None, forced: bool | None = None, limit: int = 240) -> dict:
-    resolved = [t for t in state.history if t.status == "RESOLVED" and t.actual_outcome in ("WIN", "LOSS") and t.entry_features]
+def learning_rows(limit: int = 700) -> list[dict]:
+    rows: list[dict] = []
+    try:
+        with db() as con:
+            fetched = con.execute(
+                "SELECT * FROM learning_samples ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        for row in fetched:
+            rows.append({
+                "id": row["trade_id"],
+                "timestamp": row["timestamp"],
+                "direction": row["direction"],
+                "outcome": row["outcome"],
+                "forced": bool(row["forced_trade"]),
+                "pnl": row["pnl"],
+                "tags": json.loads(row["tags"] or "[]"),
+                "features": json.loads(row["features"] or "{}"),
+            })
+    except Exception:
+        pass
+
+    known = {row["id"] for row in rows}
+    for trade in reversed(state.history[-limit:]):
+        if trade.id in known or trade.status != "RESOLVED" or trade.actual_outcome not in ("WIN", "LOSS"):
+            continue
+        rows.append({
+            "id": trade.id,
+            "timestamp": trade.timestamp,
+            "direction": trade.direction,
+            "outcome": trade.actual_outcome,
+            "forced": bool(trade.forced_trade),
+            "pnl": trade.pnl,
+            "tags": (trade.entry_features or {}).get("tags", []),
+            "features": trade.entry_features or {},
+        })
+    rows.sort(key=lambda item: item["timestamp"])
+    return rows[-limit:]
+
+
+def learned_rate(tag: str, direction: str | None = None, forced: bool | None = None, limit: int = 700) -> dict:
     sample = []
-    for trade in resolved[-limit:]:
-        features = trade.entry_features or {}
-        if tag not in features.get("tags", []):
+    for row in learning_rows(limit):
+        if tag not in row.get("tags", []):
             continue
-        if direction and trade.direction != direction:
+        if direction and row["direction"] != direction:
             continue
-        if forced is not None and bool(trade.forced_trade) != forced:
+        if forced is not None and bool(row["forced"]) != forced:
             continue
-        sample.append(trade)
-    wins = len([t for t in sample if t.actual_outcome == "WIN"])
+        sample.append(row)
+    wins = len([row for row in sample if row["outcome"] == "WIN"])
     total = len(sample)
     rate = wins / total if total else 0.5
-    confidence = min(1.0, total / 18)
+    confidence = min(1.0, total / 24)
     return {"wins": wins, "total": total, "rate": rate, "confidence": confidence}
 
 
@@ -1033,13 +1106,14 @@ def learning_adjustment(direction: str, confidence: int, forced: bool, read: dic
     tag_reads = []
     for tag in tags:
         stat = learned_rate(tag, direction=direction, forced=forced)
-        if stat["total"] < 4:
+        if stat["total"] < 3:
             continue
-        edge = (stat["rate"] - 0.5) * stat["confidence"]
+        miss_penalty = 1.35 if stat["rate"] < 0.5 else 1.0
+        edge = (stat["rate"] - 0.5) * stat["confidence"] * miss_penalty
         weighted += edge
         weight_total += stat["confidence"]
         tag_reads.append({"tag": tag, **stat})
-    learned_bias = clamp(weighted / weight_total if weight_total else 0.0, -0.14, 0.14)
+    learned_bias = clamp(weighted / weight_total if weight_total else 0.0, -0.22, 0.18)
     calibration = learned_rate(f"conf:{bucket(confidence, [45, 60, 72, 84], ['very_low', 'low', 'mid', 'high', 'elite'])}", direction=direction)
     return {
         "bias": learned_bias,
@@ -1259,8 +1333,11 @@ def compute_decision() -> dict:
     ]
     if brain["flip_blocked"]:
         data_reasons.append(f"Autonomous anti-noise guard held {brain['previous']} instead of chasing a weak {brain['candidate']} twitch.")
+    if memory["loss_streak"] > 0:
+        data_reasons.append(f"Learning adaptation is active: recent losses add stricter edge/confidence floors before another entry is allowed.")
 
-    min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012) + read["extra_edge_required"]
+    loss_caution = clamp(memory["loss_streak"] * 0.008, 0.0, 0.035)
+    min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012) + read["extra_edge_required"] + loss_caution
     confidence = brain["confidence"]
     if read["regime"] == "aligned-trend":
         confidence = min(92, confidence + 4)
@@ -1272,7 +1349,7 @@ def compute_decision() -> dict:
         confidence = int(clamp(confidence - (spread_penalty + thin_book_penalty + (up_overpay_penalty if best_side == "UP" else down_overpay_penalty)) * 90, 8, 94))
     if bayes["conflict"] > 0.28 and read["regime"] != "aligned-trend":
         confidence = max(8, confidence - 8)
-    min_confidence = {"safe": 82, "balanced": 76, "aggressive": 70}.get(state.settings.risk_mode, 76)
+    min_confidence = {"safe": 82, "balanced": 76, "aggressive": 70}.get(state.settings.risk_mode, 76) + min(10, memory["loss_streak"] * 3)
     stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 3
     learned_penalty = memory["loss_streak"] >= 2 and not forced
     early_edge_floor = min_edge + {"safe": 0.020, "balanced": 0.014, "aggressive": 0.008}.get(state.settings.risk_mode, 0.014)
@@ -1289,16 +1366,20 @@ def compute_decision() -> dict:
         }
 
     force_blockers = []
-    if best_edge < FORCED_EDGE_FLOOR:
-        force_blockers.append(f"best learned edge {best_edge * 100:+.2f}c is worse than the forced-entry floor {FORCED_EDGE_FLOOR * 100:+.1f}c")
-    if confidence < FORCED_MIN_CONFIDENCE:
-        force_blockers.append(f"confidence {confidence}% is below the forced-entry floor {FORCED_MIN_CONFIDENCE}%")
+    forced_edge_floor = FORCED_EDGE_FLOOR + loss_caution
+    forced_confidence_floor = FORCED_MIN_CONFIDENCE + min(12, memory["loss_streak"] * 4)
+    if best_edge < forced_edge_floor:
+        force_blockers.append(f"best learned edge {best_edge * 100:+.2f}c is worse than the adaptive forced-entry floor {forced_edge_floor * 100:+.1f}c")
+    if confidence < forced_confidence_floor:
+        force_blockers.append(f"confidence {confidence}% is below the adaptive forced-entry floor {forced_confidence_floor}%")
     if read["regime"] == "choppy" and memory["loss_streak"] >= 1:
         force_blockers.append("market is choppy after a recent loss, so forcing would repeat the same failure pattern")
     if selected_entry_price > 0.74 and best_edge < 0.02:
         force_blockers.append(f"{best_side} ask is expensive at {selected_entry_price * 100:.1f}c without enough edge after fees")
     if spread > 0.055:
         force_blockers.append(f"spread is too wide at {spread * 100:.1f}c for a forced entry")
+    if memory["loss_streak"] >= 2 and selected_learning["calibration_sample"] >= 5 and selected_learning["calibrated_rate"] < 0.48:
+        force_blockers.append(f"learning memory says this setup bucket is weak: {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} samples")
 
     if force_window_reached and not state.active_trade and force_blockers:
         return {
@@ -1422,6 +1503,7 @@ def analytics() -> dict:
         "last_20": [t.actual_outcome for t in resolved[-20:] if t.actual_outcome],
         "best_trade": max([t.pnl for t in resolved], default=0),
         "worst_trade": min([t.pnl for t in resolved], default=0),
+        "learning_samples": len(learning_rows()),
     }
 
 
@@ -1495,6 +1577,7 @@ def settle_active_trade(reason: str = "window rollover") -> None:
         state.active_trade.pnl = payout - state.active_trade.stake
         state.settings.balance += payout
         persist_trade(state.active_trade)
+        persist_learning_sample(state.active_trade)
         save_setting("balance", state.settings.balance)
         log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f} ({reason}). Autopsy: {loss_autopsy(state.active_trade)}.")
         state.active_trade = None
@@ -1722,7 +1805,7 @@ async def control(body: ControlBody):
         state.processed_window_id = ""
         save_setting("balance", state.settings.balance)
         save_setting("skipped_windows", state.settings.skipped_windows)
-        log("INFO", "Stats, balance, active trade, and cadence counter reset.")
+        log("INFO", "Stats, balance, active trade, and cadence counter reset. Learning memory was preserved.")
     return {"ok": True, "settings": state.settings.__dict__}
 
 
