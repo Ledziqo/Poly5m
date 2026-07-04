@@ -118,6 +118,16 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
         </div>
       </div>
 
+      <div className="mb-5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-emerald-300/80">Current Balance</div>
+        <div className="mt-1 font-mono text-3xl font-bold text-white">
+          ${local.balance.toFixed(2)}
+        </div>
+        <div className="mt-1 text-[11px] text-slate-500">
+          Available simulator cash after open stakes and resolved PnL
+        </div>
+      </div>
+
       <div className="space-y-4">
         <label className="block">
           <span className="block text-xs font-medium text-slate-400 mb-1">Stake Amount ($)</span>

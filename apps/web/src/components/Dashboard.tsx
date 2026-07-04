@@ -7,7 +7,7 @@ import ControlPanel from './ControlPanel';
 import ResolutionTimer from './ResolutionTimer';
 import SystemLogs from './SystemLogs';
 import WinStreakBox from './WinStreakBox';
-import { Activity, RefreshCw, TrendingUp, Wallet, AlertCircle } from 'lucide-react';
+import { Activity, RefreshCw, TrendingUp, Wallet, AlertCircle, CircleDollarSign } from 'lucide-react';
 import { formatET, formatLocalTime } from '../utils';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -202,6 +202,13 @@ export default function Dashboard() {
             className="grid grid-cols-2 gap-4"
           >
             <MetricCard
+              label="Current Balance"
+              icon={<CircleDollarSign className="w-3 h-3 text-emerald-400" />}
+              value={`$${data.settings.balance.toFixed(2)}`}
+              sub={`Start $${data.settings.starting_balance.toFixed(0)}`}
+              tone="green"
+            />
+            <MetricCard
               label="Total PnL"
               icon={<TrendingUp className="w-3 h-3 text-blue-400" />}
               value={`${data.analytics.total_pnl >= 0 ? '+' : ''}$${data.analytics.total_pnl.toFixed(2)}`}
@@ -280,11 +287,11 @@ export default function Dashboard() {
   );
 }
 
-function MetricCard({ label, icon, value, sub, tone = 'white' }: { label: string; icon: React.ReactNode; value: string; sub?: React.ReactNode; tone?: 'blue' | 'pink' | 'white' }) {
+function MetricCard({ label, icon, value, sub, tone = 'white' }: { label: string; icon: React.ReactNode; value: string; sub?: React.ReactNode; tone?: 'blue' | 'pink' | 'green' | 'white' }) {
   return (
     <div className="bg-[#131722]/60 backdrop-blur-xl p-4 rounded-xl shadow-lg border border-white/10 hover:border-white/20 transition-all relative overflow-hidden group">
       <div className="flex items-center gap-2 text-xs text-slate-400 mb-1 relative z-10">{icon} {label}</div>
-      <div className={`text-xl font-mono font-bold relative z-10 ${tone === 'blue' ? 'text-blue-400' : tone === 'pink' ? 'text-pink-500' : 'text-white'}`}>{value}</div>
+      <div className={`text-xl font-mono font-bold relative z-10 ${tone === 'blue' ? 'text-blue-400' : tone === 'pink' ? 'text-pink-500' : tone === 'green' ? 'text-emerald-400' : 'text-white'}`}>{value}</div>
       {sub && <div className="text-xs text-slate-400 relative z-10 mt-1">{sub}</div>}
     </div>
   );
