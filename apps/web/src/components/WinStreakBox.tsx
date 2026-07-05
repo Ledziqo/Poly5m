@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Flame, Snowflake, Trophy, TrendingDown } from 'lucide-react';
+import { ChevronDown, ChevronUp, Flame, Snowflake, Trophy, TrendingDown } from 'lucide-react';
 import axios from 'axios';
 import { motion } from 'motion/react';
 
@@ -8,15 +8,18 @@ interface StreakData {
   bestWinStreak: number;
   worstLossStreak: number;
   last20: { outcome: string; timestamp: number }[];
+  trades?: { outcome: string; timestamp: number }[];
   totalResolved: number;
 }
 
 export default function WinStreakBox() {
+  const [expanded, setExpanded] = useState(false);
   const [streak, setStreak] = useState<StreakData>({
     currentStreak: 0,
     bestWinStreak: 0,
     worstLossStreak: 0,
     last20: [],
+    trades: [],
     totalResolved: 0,
   });
 
@@ -40,8 +43,9 @@ export default function WinStreakBox() {
   const isLosing = current < 0;
   const absStreak = Math.abs(current);
   const intensity = Math.min(absStreak / 5, 1);
-  const visibleTrades = streak.last20.slice(-16);
-  const hiddenTradeCount = Math.max(0, streak.last20.length - visibleTrades.length);
+  const tradeDots = streak.trades?.length ? streak.trades : streak.last20;
+  const visibleTrades = expanded ? tradeDots : tradeDots.slice(-10);
+  const hiddenTradeCount = Math.max(0, tradeDots.length - visibleTrades.length);
 
   return (
     <motion.div
@@ -66,8 +70,8 @@ export default function WinStreakBox() {
         }`}
       />
 
-      <div className="relative z-10 flex items-center justify-between gap-4 h-full">
-        <div className="flex items-center gap-3 min-w-[154px]">
+      <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 h-full">
+        <div className="flex items-center gap-3 min-w-0 sm:min-w-[154px]">
           <div
             className={`relative flex items-center justify-center w-12 h-12 rounded-lg ${
               isWinning
@@ -111,16 +115,28 @@ export default function WinStreakBox() {
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
-          <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400 font-medium">
-            Last {streak.last20.length} Trades
+        <div className="flex-1 flex flex-col items-start sm:items-center gap-2 min-w-0">
+          <div className="flex w-full items-center justify-between gap-3 sm:justify-center">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400 font-medium">
+              {expanded ? `All ${tradeDots.length} Trades` : `Last ${Math.min(10, tradeDots.length)} Trades`}
+            </div>
+            {tradeDots.length > 10 && (
+              <button
+                type="button"
+                onClick={() => setExpanded((value) => !value)}
+                className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-slate-300 transition hover:border-purple-400/40 hover:text-white sm:absolute sm:right-4 sm:bottom-3"
+              >
+                {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {expanded ? 'Collapse' : 'Show all'}
+              </button>
+            )}
           </div>
-          <div className="flex items-center gap-1 flex-wrap justify-center min-h-[18px] max-h-[38px] overflow-hidden px-1">
-            {streak.last20.length === 0 ? (
+          <div className={`flex items-center gap-1 flex-wrap justify-start sm:justify-center min-h-[18px] px-1 ${expanded ? 'max-h-36 overflow-y-auto custom-scrollbar pr-1' : 'max-h-[38px] overflow-hidden'}`}>
+            {tradeDots.length === 0 ? (
               <span className="text-xs text-slate-500 italic">No trades yet</span>
             ) : (
               <>
-              {hiddenTradeCount > 0 && (
+              {!expanded && hiddenTradeCount > 0 && (
                 <span className="text-[10px] leading-none text-slate-500 font-mono mr-0.5">+{hiddenTradeCount}</span>
               )}
               {visibleTrades.map((t, i) => (
@@ -139,7 +155,7 @@ export default function WinStreakBox() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-1 text-right min-w-[86px]">
+        <div className="flex flex-row justify-between gap-3 text-right sm:flex-col sm:gap-1 sm:min-w-[86px]">
           <div className="flex items-center justify-end gap-1.5">
             <Trophy className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-[11px] text-slate-400">Best</span>

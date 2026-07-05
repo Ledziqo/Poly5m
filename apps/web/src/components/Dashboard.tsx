@@ -171,22 +171,22 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#07070A] bg-[linear-gradient(90deg,rgba(203,185,255,0.035)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.035)_1px,transparent_1px)] bg-[size:56px_56px] p-6 text-slate-100 font-sans">
-      <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
+    <div className="min-h-screen bg-[#07070A] bg-[linear-gradient(90deg,rgba(203,185,255,0.035)_1px,transparent_1px),linear-gradient(rgba(203,185,255,0.035)_1px,transparent_1px)] bg-[size:56px_56px] px-3 py-4 text-slate-100 font-sans sm:p-6">
+      <header className="max-w-7xl mx-auto mb-5 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="flex items-center gap-4">
-            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-16 w-16 object-cover border border-[#4A3A6A]" loading="eager" fetchPriority="high" />
+            <img src="/polyengine-icon-logo.png" alt="PolyEngine" className="h-14 w-14 object-cover border border-[#4A3A6A] sm:h-16 sm:w-16" loading="eager" fetchPriority="high" />
             <div>
-              <div className="text-xl font-semibold uppercase tracking-[0.2em] text-white">PolyEngine</div>
+              <div className="text-lg font-semibold uppercase tracking-[0.16em] text-white sm:text-xl sm:tracking-[0.2em]">PolyEngine</div>
               <div className="mt-1 inline-flex border border-[#403653] bg-[#15111F] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#CBB9FF]">
                 BTC 5M POLYMARKET ENGINE
               </div>
             </div>
           </div>
-          <p className="text-sm text-[#B7AFC7] mt-2">Fee-aware BTC 5-minute Up/Down paper trading cockpit</p>
+          <p className="text-xs text-[#B7AFC7] mt-2 sm:text-sm">Fee-aware BTC 5-minute Up/Down paper trading cockpit</p>
         </motion.div>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="flex items-center gap-4">
-          <div className="text-xs text-[#B7AFC7] flex items-center gap-1 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="flex items-center justify-between gap-3 sm:justify-end sm:gap-4">
+          <div className="min-w-0 text-[11px] text-[#B7AFC7] flex items-center gap-1 border border-[#403653] bg-[#0D0B12]/90 px-3 py-2 sm:text-xs">
             <RefreshCw className="w-3 h-3 text-[#CBB9FF]" /> {streamConnected ? 'Live stream' : 'Polling backup'}: {formatET(lastUpdated.getTime())}
           </div>
           <div className={`h-2 w-2 animate-pulse ${data.settings.bot_state === 'running' ? 'bg-[#CBB9FF] shadow-[0_0_10px_rgba(203,185,255,0.7)]' : 'bg-slate-600'}`} />
@@ -199,7 +199,7 @@ export default function Dashboard() {
 
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.4 }}
-            className="grid grid-cols-2 gap-4"
+            className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:gap-4"
           >
             <MetricCard
               label="Current Balance"
@@ -289,9 +289,9 @@ export default function Dashboard() {
 
 function MetricCard({ label, icon, value, sub, tone = 'white' }: { label: string; icon: React.ReactNode; value: string; sub?: React.ReactNode; tone?: 'blue' | 'pink' | 'green' | 'white' }) {
   return (
-    <div className="bg-[#131722]/60 backdrop-blur-xl p-4 rounded-xl shadow-lg border border-white/10 hover:border-white/20 transition-all relative overflow-hidden group">
+    <div className="bg-[#131722]/60 backdrop-blur-xl p-4 rounded-xl shadow-lg border border-white/10 hover:border-white/20 transition-all relative overflow-hidden group min-w-0">
       <div className="flex items-center gap-2 text-xs text-slate-400 mb-1 relative z-10">{icon} {label}</div>
-      <div className={`text-xl font-mono font-bold relative z-10 ${tone === 'blue' ? 'text-blue-400' : tone === 'pink' ? 'text-pink-500' : tone === 'green' ? 'text-emerald-400' : 'text-white'}`}>{value}</div>
+      <div className={`text-lg font-mono font-bold relative z-10 break-words sm:text-xl ${tone === 'blue' ? 'text-blue-400' : tone === 'pink' ? 'text-pink-500' : tone === 'green' ? 'text-emerald-400' : 'text-white'}`}>{value}</div>
       {sub && <div className="text-xs text-slate-400 relative z-10 mt-1">{sub}</div>}
     </div>
   );
@@ -305,17 +305,17 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
       initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className={`flex justify-between items-center text-xs p-3 rounded-lg border transition-all ${active ? 'bg-blue-900/20 border-blue-500/40 shadow-[0_0_15px_rgba(59,130,246,0.15)]' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+      className={`flex flex-col gap-3 text-xs p-3 rounded-lg border transition-all sm:flex-row sm:items-center sm:justify-between ${active ? 'bg-blue-900/20 border-blue-500/40 shadow-[0_0_15px_rgba(59,130,246,0.15)]' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
     >
-      <div>
-        <div className="flex items-center gap-2 mb-1">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2 mb-1">
           <span className="text-slate-400">{formatET(trade.timestamp)}</span>
           <span className="text-slate-600">/</span>
           <span className="text-slate-500">{formatLocalTime(trade.timestamp)}</span>
           <span className={`font-bold ${trade.direction === 'UP' ? 'text-blue-400' : 'text-pink-500'}`}>{trade.direction}</span>
           {trade.forced_trade && <span className="text-[10px] bg-orange-500/10 text-orange-300 px-1.5 py-0.5 rounded border border-orange-500/20">FORCED</span>}
         </div>
-        <div className="text-slate-400 text-[10px] flex items-center gap-2">
+        <div className="text-slate-400 text-[10px] flex flex-wrap items-center gap-2">
           <span>Entry ${trade.btc_entry_price.toFixed(2)}</span>
           <span className="text-slate-600">-</span>
           <span>{(trade.entry_price * 100).toFixed(1)}c</span>
@@ -329,7 +329,7 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
           )}
         </div>
       </div>
-      <div className="text-right">
+      <div className="text-left sm:text-right">
         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold mb-1 inline-block ${trade.actual_outcome === 'WIN' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : active ? 'bg-blue-500/10 text-blue-300 border border-blue-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
           {active ? 'OPEN' : trade.actual_outcome || trade.status}
         </span>

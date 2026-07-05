@@ -1956,7 +1956,8 @@ async def logs():
 async def streak():
     resolved = [t for t in state.history if t.status == "RESOLVED"]
     a = analytics()
-    last20 = [{"outcome": t.actual_outcome, "timestamp": t.timestamp} for t in resolved[-20:] if t.actual_outcome]
+    all_trades = [{"outcome": t.actual_outcome, "timestamp": t.timestamp} for t in resolved if t.actual_outcome]
+    last20 = all_trades[-20:]
     best = worst = cur = 0
     for t in resolved:
         if t.actual_outcome == "WIN":
@@ -1965,7 +1966,14 @@ async def streak():
             cur = cur - 1 if cur <= 0 else -1
         best = max(best, cur)
         worst = min(worst, cur)
-    return {"currentStreak": a["current_streak"], "bestWinStreak": best, "worstLossStreak": worst, "last20": last20, "totalResolved": len(resolved)}
+    return {
+        "currentStreak": a["current_streak"],
+        "bestWinStreak": best,
+        "worstLossStreak": worst,
+        "last20": last20,
+        "trades": all_trades,
+        "totalResolved": len(resolved),
+    }
 
 
 @app.post("/api/backtests/run")
