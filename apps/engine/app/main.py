@@ -2009,9 +2009,14 @@ async def backtests():
 @app.post("/api/control")
 async def control(body: ControlBody):
     if body.action == "start":
+        clear_stale_polymarket_window()
+        start, end = active_window_bounds()
+        current_time = now_ms()
+        state.processed_window_id = str(start)
         state.settings.bot_state = "running"
         save_setting("bot_state", state.settings.bot_state)
-        log("INFO", "Bot started. Current round is eligible immediately if it passes live odds, confidence, edge, spread, and cutoff checks.")
+        seconds_left = max(0, int((end - current_time) / 1000))
+        log("INFO", f"Bot armed. Waiting for the next BTC 5m round before taking a new entry; current round has {seconds_left}s left.")
     elif body.action == "stop":
         state.settings.bot_state = "stopped"
         save_setting("bot_state", state.settings.bot_state)
