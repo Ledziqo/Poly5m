@@ -190,9 +190,9 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
             <SlidersHorizontal className="w-3 h-3" /> Entry Rule
           </div>
           <div className="text-lg font-mono font-bold text-white">
-            03:00
+            4:20-2:05
           </div>
-          <div className="text-[10px] text-slate-500">every round must enter</div>
+          <div className="text-[10px] text-slate-500">quality-gated entries</div>
         </div>
         <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
           <div className="flex items-center gap-2 text-xs text-orange-300 mb-1">

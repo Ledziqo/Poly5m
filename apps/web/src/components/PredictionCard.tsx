@@ -66,7 +66,11 @@ export default function PredictionCard({
           <div className="flex gap-2">
             <div className="flex items-center gap-1 text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded border border-purple-500/20" title="Model confidence">
               <BrainCircuit className="w-3 h-3" />
-              {decision.confidence}%
+              Conf {decision.confidence}%
+            </div>
+            <div className="flex items-center gap-1 text-[10px] bg-cyan-500/10 text-cyan-300 px-2 py-0.5 rounded border border-cyan-500/20" title="Trade conviction">
+              <Zap className="w-3 h-3" />
+              Conv {decision.conviction ?? 0}%
             </div>
             {decision.forced_trade && (
               <div className="flex items-center gap-1 text-[10px] bg-orange-500/10 text-orange-400 px-2 py-0.5 rounded border border-orange-500/20" title="Forced cadence trade">
@@ -128,11 +132,36 @@ export default function PredictionCard({
             Net edge: <span className={decision.best_edge > 0 ? 'text-emerald-400' : 'text-rose-400'}>{(decision.best_edge * 100).toFixed(2)}c</span>
           </div>
         </div>
-        <div className="text-xs text-slate-500">
-          Fee drag: {(decision.expected_fee_cost * 100).toFixed(2)}c per share. New entries close at 2:00 remaining.
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded border border-white/5 bg-white/[0.03] p-2">
+            <div className="text-slate-500">Recommended stake</div>
+            <div className="mt-1 font-mono text-white">${(decision.recommended_stake ?? 0).toFixed(2)}</div>
+          </div>
+          <div className="rounded border border-white/5 bg-white/[0.03] p-2">
+            <div className="text-slate-500">Brain state</div>
+            <div className="mt-1 font-mono text-white">{decision.brain_state?.regime || 'waiting'}</div>
+          </div>
+        </div>
+        <div className="text-xs text-slate-500 mt-2">
+          Fee drag: {(decision.expected_fee_cost * 100).toFixed(2)}c per share. Preferred entries run from 4:20 to 2:05 remaining.
         </div>
         <div className="text-xs text-slate-600 mt-1">
           Chainlink/reference status: <span className={window.chainlink_status === 'live' ? 'text-emerald-400' : 'text-orange-400'}>{window.chainlink_status}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 relative z-10 mb-4">
+        <SignalList title="Supporting Signals" items={decision.supporting_signals || []} tone="support" />
+        <SignalList title="Risk Warnings" items={decision.risk_warnings || []} tone="risk" />
+      </div>
+
+      <div className="relative z-10 mb-4 rounded-lg border border-white/5 bg-white/[0.03] p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-slate-500 font-bold">Brain State</div>
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <BrainMetric label="Learning samples" value={`${decision.brain_state?.learning_samples ?? 0}`} />
+          <BrainMetric label="Similar setup" value={`${(((decision.brain_state?.similar_win_rate ?? 0.5) * 100)).toFixed(0)}% / ${decision.brain_state?.similar_sample ?? 0}`} />
+          <BrainMetric label="Loss guard" value={decision.brain_state?.loss_guard || 'clear'} />
+          <BrainMetric label="Stake logic" value={(decision.brain_state?.stake_reasons || ['standard stake'])[0]} />
         </div>
       </div>
 
@@ -149,6 +178,29 @@ export default function PredictionCard({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function SignalList({ title, items, tone }: { title: string; items: string[]; tone: 'support' | 'risk' }) {
+  const color = tone === 'support' ? 'text-emerald-300 border-emerald-500/15 bg-emerald-500/5' : 'text-orange-300 border-orange-500/15 bg-orange-500/5';
+  return (
+    <div className={`rounded-lg border p-3 ${color}`}>
+      <div className="mb-2 text-[10px] uppercase tracking-wider font-bold opacity-80">{title}</div>
+      <div className="space-y-1.5">
+        {(items.length ? items : ['waiting for live signal stack']).slice(0, 3).map((item, index) => (
+          <div key={index} className="text-[11px] leading-4 text-slate-300">{item}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BrainMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-white/5 bg-black/15 p-2">
+      <div className="text-[9px] uppercase tracking-wider text-slate-500">{label}</div>
+      <div className="mt-1 truncate text-xs font-mono text-slate-200" title={value}>{value}</div>
+    </div>
   );
 }
 

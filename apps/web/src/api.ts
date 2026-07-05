@@ -42,6 +42,8 @@ export interface BtcWindow {
 export interface Decision {
   direction: Direction;
   confidence: number;
+  conviction: number;
+  recommended_stake: number;
   fair_up: number;
   fair_down: number;
   edge_up: number;
@@ -52,6 +54,17 @@ export interface Decision {
   action: 'WAIT' | 'ENTER' | 'HOLD' | 'EXIT';
   reasons: string[];
   no_trade_reason?: string;
+  supporting_signals: string[];
+  risk_warnings: string[];
+  brain_state: {
+    regime: string;
+    learning_samples: number;
+    similar_win_rate: number;
+    similar_sample: number;
+    loss_guard: string;
+    votes: Record<string, number>;
+    stake_reasons: string[];
+  };
   indicator_scores: Record<string, number>;
 }
 
@@ -97,6 +110,7 @@ export interface Analytics {
   last_20: Array<'WIN' | 'LOSS' | 'PUSH'>;
   best_trade: number;
   worst_trade: number;
+  learning_samples?: number;
 }
 
 export interface LogEntry {
