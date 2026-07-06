@@ -20,8 +20,9 @@ from pydantic import BaseModel
 Direction = Literal["UP", "DOWN", "WAIT"]
 DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
-ENTRY_MIN_ELAPSED_SECONDS = 40
-ENTRY_FORCE_SECONDS = 125
+ENTRY_MIN_ELAPSED_SECONDS = 20
+ENTRY_FORCE_SECONDS = 140
+MAX_ENTRY_PRICE = 0.70
 FORCED_EDGE_FLOOR = -0.006
 FORCED_MIN_CONFIDENCE = 68
 
@@ -1511,7 +1512,7 @@ def compute_decision() -> dict:
         f"Calibration read for {best_side}: historical bucket rate {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} matching confidence samples; similar-pattern memory says {similar['description']}.",
         f"Conviction score is {conviction}/100 from trend {vote_brain['votes']['trend']:+.2f}, reversal {vote_brain['votes']['reversal']:+.2f}, market {vote_brain['votes']['market']:+.2f}, memory {vote_brain['votes']['memory']:+.2f}, risk {vote_brain['votes']['risk']:+.2f}.",
         f"Recommended stake is ${stake_amount:.2f}: {', '.join(stake_reasons)}.",
-        f"Entry discipline: preferred entry window is 4:20 to 2:05 remaining; only one skipped round is allowed before the next usable round becomes a required cadence trade.",
+        f"Entry discipline: preferred entry window is 4:40 to 2:20 remaining; only one skipped round is allowed before the next usable round becomes a required cadence trade, but the bot never buys shares above 70c.",
     ]
     if cadence_forced:
         data_reasons.append("Cadence rule is active: the previous round was skipped, so this round must take the best available side after the opening observation window.")
@@ -1579,7 +1580,9 @@ def compute_decision() -> dict:
         force_blockers.append(f"conviction {conviction}/100 is below the adaptive conviction floor {conviction_floor}/100")
     if not cadence_forced and read["regime"] == "choppy" and memory["loss_streak"] >= 1:
         force_blockers.append("market is choppy after a recent loss, so forcing would repeat the same failure pattern")
-    if not cadence_forced and selected_entry_price > 0.74 and best_edge < 0.02:
+    if selected_entry_price > MAX_ENTRY_PRICE:
+        force_blockers.append(f"{best_side} ask is {selected_entry_price * 100:.1f}c, above the hard 70.0c max-entry rule")
+    elif not cadence_forced and selected_entry_price > 0.68 and best_edge < 0.02:
         force_blockers.append(f"{best_side} ask is expensive at {selected_entry_price * 100:.1f}c without enough edge after fees")
     if spread > 0.055:
         force_blockers.append(f"spread is too wide at {spread * 100:.1f}c for a forced entry")
@@ -1589,7 +1592,7 @@ def compute_decision() -> dict:
     if force_window_reached and not state.active_trade and force_blockers:
         return enrich({
             **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "WAIT"),
-            "reasons": data_reasons + [f"Capital-protection skip at the 2:05 cutoff: {'; '.join(force_blockers)}."],
+            "reasons": data_reasons + [f"Capital-protection skip at the 2:20 cutoff: {'; '.join(force_blockers)}."],
             "no_trade_reason": "Forced entry rejected by capital protection.",
             "lock_window": True,
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
@@ -1598,7 +1601,7 @@ def compute_decision() -> dict:
     if force_window_reached and not state.active_trade:
         return enrich({
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
-            "reasons": data_reasons + [f"{'Cadence' if cadence_forced else 'Late cutoff'} entry selected {best_side}. The bot already used its one allowed skip, so it is taking the best available side that still has usable live pricing."],
+            "reasons": data_reasons + [f"{'Cadence' if cadence_forced else 'Late cutoff'} entry selected {best_side}. The bot already used its one allowed skip, so it is taking the best available side with usable live pricing and an ask at or below 70c."],
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
         })
 
@@ -1628,11 +1631,11 @@ def compute_decision() -> dict:
             })
         return enrich({
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, True, confidence, "ENTER"),
-            "reasons": data_reasons + [f"{'Cadence' if cadence_forced else 'Cutoff'} entry selected {best_side}, the strongest available side with usable live pricing."],
+            "reasons": data_reasons + [f"{'Cadence' if cadence_forced else 'Cutoff'} entry selected {best_side}, the strongest available side with usable live pricing and an ask at or below 70c."],
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
         })
 
-    if best_edge >= early_edge_floor and confidence >= min_confidence and conviction >= conviction_floor and stable_enough and not learned_penalty and entry_window_open:
+    if selected_entry_price <= MAX_ENTRY_PRICE and best_edge >= early_edge_floor and confidence >= min_confidence and conviction >= conviction_floor and stable_enough and not learned_penalty and entry_window_open:
         return enrich({
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
             "reasons": data_reasons + [f"Selected {best_side} because learned edge beats {early_edge_floor * 100:.1f}c, confidence {confidence}% passes {min_confidence}%, conviction {conviction}/100 passes {conviction_floor}/100, and the signal persisted for 3 brain ticks."],
@@ -1650,6 +1653,8 @@ def compute_decision() -> dict:
         guard_reasons.append("signal has not persisted for enough brain ticks")
     if learned_penalty:
         guard_reasons.append("recent loss streak raised the learning guard")
+    if selected_entry_price > MAX_ENTRY_PRICE:
+        guard_reasons.append(f"{best_side} ask {selected_entry_price * 100:.1f}c is above the hard 70.0c max-entry rule")
     guard_text = "; ".join(guard_reasons) if guard_reasons else "signal is not strong enough yet"
     return enrich({
         **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
@@ -1818,6 +1823,12 @@ async def maybe_trade() -> None:
     if decision["action"] == "ENTER" and decision["direction"] in ("UP", "DOWN"):
         direction = decision["direction"]
         ask = state.up_ask if direction == "UP" else state.down_ask
+        if ask > MAX_ENTRY_PRICE:
+            log("WARN", f"Blocked {direction} entry because ask {ask * 100:.1f}c is above the hard 70.0c max-entry rule.")
+            state.processed_window_id = window_id
+            state.settings.skipped_windows += 1
+            save_setting("skipped_windows", state.settings.skipped_windows)
+            return
         stake = min(float(decision.get("recommended_stake") or state.settings.stake_amount), state.settings.max_trade_amount)
         if state.settings.balance < stake:
             log("WARN", f"Cannot enter {direction}: balance ${state.settings.balance:.2f} is below fixed stake ${stake:.2f}.")

@@ -190,7 +190,7 @@ export default function ControlPanel({ settings, onUpdate }: { settings: Setting
             <SlidersHorizontal className="w-3 h-3" /> Entry Rule
           </div>
           <div className="text-lg font-mono font-bold text-white">
-            4:20-2:05
+            4:40-2:20
           </div>
           <div className="text-[10px] text-slate-500">quality-gated entries</div>
         </div>

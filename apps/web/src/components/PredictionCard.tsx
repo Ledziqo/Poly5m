@@ -143,7 +143,7 @@ export default function PredictionCard({
           </div>
         </div>
         <div className="text-xs text-slate-500 mt-2">
-          Fee drag: {(decision.expected_fee_cost * 100).toFixed(2)}c per share. Preferred entries run from 4:20 to 2:05 remaining.
+          Fee drag: {(decision.expected_fee_cost * 100).toFixed(2)}c per share. Preferred entries run from 4:40 to 2:20 remaining, with no buys above 70c.
         </div>
         <div className="text-xs text-slate-600 mt-1">
           Chainlink/reference status: <span className={window.chainlink_status === 'live' ? 'text-emerald-400' : 'text-orange-400'}>{window.chainlink_status}</span>
