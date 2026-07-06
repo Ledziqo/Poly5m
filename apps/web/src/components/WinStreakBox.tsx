@@ -46,6 +46,10 @@ export default function WinStreakBox() {
   const tradeDots = streak.trades?.length ? streak.trades : streak.last20;
   const visibleTrades = expanded ? tradeDots : tradeDots.slice(-10);
   const hiddenTradeCount = Math.max(0, tradeDots.length - visibleTrades.length);
+  const expandedTrades = [...tradeDots].reverse();
+
+  const formatTradeTime = (timestamp: number) =>
+    new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
     <motion.div
@@ -70,104 +74,145 @@ export default function WinStreakBox() {
         }`}
       />
 
-      <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 h-full">
-        <div className="flex items-center gap-3 min-w-0 sm:min-w-[154px]">
-          <div
-            className={`relative flex items-center justify-center w-12 h-12 rounded-lg ${
-              isWinning
-                ? 'bg-amber-500/15 border border-amber-500/35'
-                : isLosing
-                  ? 'bg-cyan-500/15 border border-cyan-500/35'
-                  : 'bg-slate-700/35 border border-slate-500/35'
-            }`}
-          >
-            {isWinning ? (
-              <Flame
-                className={`w-6 h-6 text-amber-400 ${absStreak >= 3 ? 'animate-pulse' : ''}`}
-                style={{ filter: `drop-shadow(0 0 ${5 + intensity * 12}px rgba(251, 191, 36, ${0.45 + intensity * 0.4}))` }}
-              />
-            ) : isLosing ? (
-              <Snowflake
-                className={`w-6 h-6 text-cyan-400 ${absStreak >= 3 ? 'animate-pulse' : ''}`}
-                style={{ filter: `drop-shadow(0 0 ${5 + intensity * 12}px rgba(34, 211, 238, ${0.45 + intensity * 0.4}))` }}
-              />
-            ) : (
-              <span className="text-slate-400 text-xl">-</span>
-            )}
-          </div>
-
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400 mb-1">Current Streak</div>
+      <div className="relative z-10 flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-[minmax(142px,0.9fr)_minmax(180px,1.45fr)_minmax(138px,0.8fr)] sm:items-center">
+          <div className="flex items-center gap-3 min-w-0">
             <div
-              className={`text-3xl font-mono font-bold leading-none ${
-                isWinning ? 'text-amber-300' : isLosing ? 'text-cyan-300' : 'text-slate-400'
-              }`}
-              style={
+              className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${
                 isWinning
-                  ? { textShadow: `0 0 ${8 + intensity * 14}px rgba(251, 191, 36, ${0.35 + intensity * 0.4})` }
+                  ? 'bg-amber-500/15 border border-amber-500/35'
                   : isLosing
-                    ? { textShadow: `0 0 ${8 + intensity * 14}px rgba(34, 211, 238, ${0.35 + intensity * 0.4})` }
-                    : {}
-              }
+                    ? 'bg-cyan-500/15 border border-cyan-500/35'
+                    : 'bg-slate-700/35 border border-slate-500/35'
+              }`}
             >
-              {isWinning ? `${absStreak}W` : isLosing ? `${absStreak}L` : '0'}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col items-start sm:items-center gap-2 min-w-0">
-          <div className="flex w-full items-center justify-between gap-3 sm:justify-center">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400 font-medium">
-              {expanded ? `All ${tradeDots.length} Trades` : `Last ${Math.min(10, tradeDots.length)} Trades`}
-            </div>
-            {tradeDots.length > 10 && (
-              <button
-                type="button"
-                onClick={() => setExpanded((value) => !value)}
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-slate-300 transition hover:border-purple-400/40 hover:text-white sm:absolute sm:right-4 sm:bottom-3"
-              >
-                {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                {expanded ? 'Collapse' : 'Show all'}
-              </button>
-            )}
-          </div>
-          <div className={`flex items-center gap-1 flex-wrap justify-start sm:justify-center min-h-[18px] px-1 ${expanded ? 'max-h-36 overflow-y-auto custom-scrollbar pr-1' : 'max-h-[38px] overflow-hidden'}`}>
-            {tradeDots.length === 0 ? (
-              <span className="text-xs text-slate-500 italic">No trades yet</span>
-            ) : (
-              <>
-              {!expanded && hiddenTradeCount > 0 && (
-                <span className="text-[10px] leading-none text-slate-500 font-mono mr-0.5">+{hiddenTradeCount}</span>
-              )}
-              {visibleTrades.map((t, i) => (
-                <div
-                  key={`${t.timestamp}-${i}`}
-                  className={`w-2 h-2 rounded-full transition-all shrink-0 ${
-                    t.outcome === 'WIN'
-                      ? 'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.65)]'
-                      : 'bg-rose-400 shadow-[0_0_5px_rgba(251,113,133,0.65)]'
-                  }`}
-                  title={`${t.outcome} at ${new Date(t.timestamp).toLocaleTimeString()}`}
+              {isWinning ? (
+                <Flame
+                  className={`w-6 h-6 text-amber-400 ${absStreak >= 3 ? 'animate-pulse' : ''}`}
+                  style={{ filter: `drop-shadow(0 0 ${5 + intensity * 12}px rgba(251, 191, 36, ${0.45 + intensity * 0.4}))` }}
                 />
-              ))}
-              </>
-            )}
+              ) : isLosing ? (
+                <Snowflake
+                  className={`w-6 h-6 text-cyan-400 ${absStreak >= 3 ? 'animate-pulse' : ''}`}
+                  style={{ filter: `drop-shadow(0 0 ${5 + intensity * 12}px rgba(34, 211, 238, ${0.45 + intensity * 0.4}))` }}
+                />
+              ) : (
+                <span className="text-slate-400 text-xl">-</span>
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <div className="mb-1 text-[10px] uppercase tracking-[0.18em] text-slate-400 sm:text-[11px]">Current Streak</div>
+              <div
+                className={`text-3xl font-mono font-bold leading-none ${
+                  isWinning ? 'text-amber-300' : isLosing ? 'text-cyan-300' : 'text-slate-400'
+                }`}
+                style={
+                  isWinning
+                    ? { textShadow: `0 0 ${8 + intensity * 14}px rgba(251, 191, 36, ${0.35 + intensity * 0.4})` }
+                    : isLosing
+                      ? { textShadow: `0 0 ${8 + intensity * 14}px rgba(34, 211, 238, ${0.35 + intensity * 0.4})` }
+                      : {}
+                }
+              >
+                {isWinning ? `${absStreak}W` : isLosing ? `${absStreak}L` : '0'}
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 rounded-lg border border-white/5 bg-black/10 px-3 py-2.5">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-medium sm:text-[11px]">
+                {expanded ? `Showing all ${tradeDots.length}` : `Last ${Math.min(10, tradeDots.length)} trades`}
+              </div>
+              {tradeDots.length > 10 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded((value) => !value)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-purple-400/25 bg-purple-400/10 px-3 py-1 text-[10px] font-semibold text-purple-100 shadow-[0_0_16px_rgba(168,85,247,0.12)] transition hover:border-purple-300/50 hover:bg-purple-400/15"
+                >
+                  {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  {expanded ? 'Collapse' : 'Show all'}
+                </button>
+              )}
+            </div>
+            <div className="flex min-h-[18px] flex-wrap items-center justify-start gap-1.5">
+              {tradeDots.length === 0 ? (
+                <span className="text-xs text-slate-500 italic">No trades yet</span>
+              ) : (
+                <>
+                {!expanded && hiddenTradeCount > 0 && (
+                  <span className="mr-0.5 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-slate-400 font-mono">+{hiddenTradeCount}</span>
+                )}
+                {visibleTrades.map((t, i) => (
+                  <div
+                    key={`${t.timestamp}-${i}`}
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full transition-all ${
+                      t.outcome === 'WIN'
+                        ? 'bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.75)]'
+                        : 'bg-rose-400 shadow-[0_0_7px_rgba(251,113,133,0.75)]'
+                    }`}
+                    title={`${t.outcome} at ${formatTradeTime(t.timestamp)}`}
+                  />
+                ))}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-1 sm:gap-1.5">
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-400/15 bg-amber-400/5 px-3 py-2 sm:justify-end sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+              <div className="flex items-center gap-1.5">
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[11px] text-slate-400">Best</span>
+              </div>
+              <span className="text-sm font-mono font-bold text-amber-300">{streak.bestWinStreak}W</span>
+            </div>
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-cyan-400/15 bg-cyan-400/5 px-3 py-2 sm:justify-end sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+              <div className="flex items-center gap-1.5">
+                <TrendingDown className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-[11px] text-slate-400">Worst</span>
+              </div>
+              <span className="text-sm font-mono font-bold text-cyan-300">{Math.abs(streak.worstLossStreak)}L</span>
+            </div>
+            <div className="col-span-2 text-left text-[11px] text-slate-500 sm:col-span-1 sm:text-right">{streak.totalResolved} total resolved</div>
           </div>
         </div>
 
-        <div className="flex flex-row justify-between gap-3 text-right sm:flex-col sm:gap-1 sm:min-w-[86px]">
-          <div className="flex items-center justify-end gap-1.5">
-            <Trophy className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[11px] text-slate-400">Best</span>
-            <span className="text-sm font-mono font-bold text-amber-300">{streak.bestWinStreak}W</span>
-          </div>
-          <div className="flex items-center justify-end gap-1.5">
-            <TrendingDown className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-[11px] text-slate-400">Worst</span>
-            <span className="text-sm font-mono font-bold text-cyan-300">{Math.abs(streak.worstLossStreak)}L</span>
-          </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{streak.totalResolved} total</div>
-        </div>
+        {expanded && tradeDots.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border border-white/10 bg-[#080A12]/80 p-3 shadow-inner shadow-black/30"
+          >
+            <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500">
+              <span>Trade tape</span>
+              <span>{tradeDots.length} resolved</span>
+            </div>
+            <div className="grid max-h-48 grid-cols-1 gap-1.5 overflow-y-auto pr-1 custom-scrollbar min-[420px]:grid-cols-2 lg:grid-cols-3">
+              {expandedTrades.map((trade, index) => (
+                <div
+                  key={`expanded-${trade.timestamp}-${index}`}
+                  className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-xs ${
+                    trade.outcome === 'WIN'
+                      ? 'border-emerald-400/15 bg-emerald-400/5 text-emerald-200'
+                      : 'border-rose-400/15 bg-rose-400/5 text-rose-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        trade.outcome === 'WIN' ? 'bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,0.75)]' : 'bg-rose-400 shadow-[0_0_7px_rgba(251,113,133,0.75)]'
+                      }`}
+                    />
+                    <span className="font-semibold">{trade.outcome}</span>
+                  </span>
+                  <span className="font-mono text-slate-400">{formatTradeTime(trade.timestamp)}</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
