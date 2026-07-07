@@ -302,6 +302,7 @@ function MetricCard({ label, icon, value, sub, tone = 'white' }: { label: string
 function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean }) {
   const livePnl = active ? (trade.unrealized_pnl ?? trade.pnl) : trade.pnl;
   const markPrice = active ? trade.mark_price : trade.exit_price;
+  const endingBtc = active ? undefined : trade.btc_exit_price;
   return (
     <motion.div
       initial={{ opacity: 0, y: 5 }}
@@ -320,6 +321,14 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
         <div className="text-slate-400 text-[10px] flex flex-wrap items-center gap-2">
           <span>Entry ${trade.btc_entry_price.toFixed(2)}</span>
           <span className="text-slate-600">-</span>
+          <span>Beat ${trade.price_to_beat.toFixed(2)}</span>
+          <span className="text-slate-600">-</span>
+          {endingBtc !== undefined && (
+            <>
+              <span>End ${endingBtc.toFixed(2)}</span>
+              <span className="text-slate-600">-</span>
+            </>
+          )}
           <span>{(trade.entry_price * 100).toFixed(1)}c</span>
           <span className="text-slate-600">-</span>
           <span>fee ${trade.fee_paid.toFixed(2)}</span>

@@ -22,6 +22,7 @@ DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
 ENTRY_MIN_ELAPSED_SECONDS = 20
 ENTRY_FORCE_SECONDS = 140
+MIN_ENTRY_PRICE = 0.05
 MAX_ENTRY_PRICE = 0.70
 FORCED_EDGE_FLOOR = -0.006
 FORCED_MIN_CONFIDENCE = 68
@@ -108,6 +109,7 @@ class Trade:
     shares_count: float
     stake: float
     fee_paid: float
+    btc_exit_price: float | None = None
     pnl: float = 0.0
     actual_outcome: str | None = None
     exit_price: float | None = None
@@ -229,6 +231,7 @@ def init_db() -> None:
           exit_price REAL,
           price_to_beat REAL NOT NULL,
           btc_entry_price REAL NOT NULL,
+          btc_exit_price REAL,
           shares_count REAL NOT NULL,
           stake REAL NOT NULL,
           fee_paid REAL NOT NULL,
@@ -278,6 +281,8 @@ def init_db() -> None:
         columns = {row["name"] for row in con.execute("PRAGMA table_info(trades)").fetchall()}
         if "entry_features" not in columns:
             con.execute("ALTER TABLE trades ADD COLUMN entry_features TEXT NOT NULL DEFAULT '{}'")
+        if "btc_exit_price" not in columns:
+            con.execute("ALTER TABLE trades ADD COLUMN btc_exit_price REAL")
 
 
 def save_setting(key: str, value) -> None:
@@ -303,6 +308,7 @@ def load_persistent_state() -> None:
                 exit_price=r["exit_price"],
                 price_to_beat=r["price_to_beat"],
                 btc_entry_price=r["btc_entry_price"],
+                btc_exit_price=r["btc_exit_price"] if "btc_exit_price" in r.keys() else None,
                 shares_count=r["shares_count"],
                 stake=r["stake"],
                 fee_paid=r["fee_paid"],
@@ -324,12 +330,12 @@ def persist_trade(trade: Trade) -> None:
             """
             INSERT OR REPLACE INTO trades(
               id,timestamp,window_id,direction,status,entry_price,exit_price,price_to_beat,
-              btc_entry_price,shares_count,stake,fee_paid,pnl,actual_outcome,forced_trade,reason,entry_features
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              btc_entry_price,btc_exit_price,shares_count,stake,fee_paid,pnl,actual_outcome,forced_trade,reason,entry_features
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade.id, trade.timestamp, trade.window_id, trade.direction, trade.status,
-                trade.entry_price, trade.exit_price, trade.price_to_beat, trade.btc_entry_price,
+                trade.entry_price, trade.exit_price, trade.price_to_beat, trade.btc_entry_price, trade.btc_exit_price,
                 trade.shares_count, trade.stake, trade.fee_paid, trade.pnl, trade.actual_outcome,
                 1 if trade.forced_trade else 0, trade.reason, json.dumps(trade.entry_features, separators=(",", ":")),
             ),
@@ -902,6 +908,8 @@ def market_quality_gate(start: int, end: int, time_left: float) -> dict:
         reasons.append("order book is crossed")
     if state.up_ask > MAX_ENTRY_PRICE and state.down_ask > MAX_ENTRY_PRICE:
         reasons.append("both sides are above the hard 70c max-entry rule")
+    if state.up_ask < MIN_ENTRY_PRICE and state.down_ask < MIN_ENTRY_PRICE:
+        reasons.append("both sides are below the hard 5c minimum-entry sanity rule")
 
     return {
         "eligible": not reasons,
@@ -1611,10 +1619,10 @@ def compute_decision() -> dict:
     raw_best_edge = max(edge_up, edge_down)
     selected_learning = up_learning if best_side == "UP" else down_learning
     selected_entry_price = state.up_ask if best_side == "UP" else state.down_ask
-    if selected_entry_price > MAX_ENTRY_PRICE:
+    if selected_entry_price > MAX_ENTRY_PRICE or selected_entry_price < MIN_ENTRY_PRICE:
         alternate_side = "DOWN" if best_side == "UP" else "UP"
         alternate_price = state.down_ask if alternate_side == "DOWN" else state.up_ask
-        if alternate_price <= MAX_ENTRY_PRICE:
+        if MIN_ENTRY_PRICE <= alternate_price <= MAX_ENTRY_PRICE:
             best_side = alternate_side
             best_edge = learned_edge_down if best_side == "DOWN" else learned_edge_up
             selected_learning = down_learning if best_side == "DOWN" else up_learning
@@ -1721,6 +1729,8 @@ def compute_decision() -> dict:
         data_reasons.append("Cutoff warning: market is choppy after a recent loss; the bot still trades the eligible round but with risk reduced.")
     if selected_entry_price > MAX_ENTRY_PRICE:
         force_blockers.append(f"{best_side} ask is {selected_entry_price * 100:.1f}c, above the hard 70.0c max-entry rule")
+    elif selected_entry_price < MIN_ENTRY_PRICE:
+        force_blockers.append(f"{best_side} ask is {selected_entry_price * 100:.1f}c, below the hard 5.0c minimum-entry sanity rule")
     elif not cadence_forced and selected_entry_price > 0.68 and best_edge < 0.02:
         force_blockers.append(f"{best_side} ask is expensive at {selected_entry_price * 100:.1f}c without enough edge after fees")
     if spread > 0.055:
@@ -1774,7 +1784,7 @@ def compute_decision() -> dict:
             "entry_features": entry_snapshot(best_side, confidence, True, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
         })
 
-    if selected_entry_price <= MAX_ENTRY_PRICE and best_edge >= early_edge_floor and confidence >= min_confidence and conviction >= conviction_floor and stable_enough and not learned_penalty and entry_window_open:
+    if MIN_ENTRY_PRICE <= selected_entry_price <= MAX_ENTRY_PRICE and best_edge >= early_edge_floor and confidence >= min_confidence and conviction >= conviction_floor and stable_enough and not learned_penalty and entry_window_open:
         return enrich({
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
             "reasons": data_reasons + [f"Selected {best_side} because learned edge beats {early_edge_floor * 100:.1f}c, confidence {confidence}% passes {min_confidence}%, conviction {conviction}/100 passes {conviction_floor}/100, and the signal persisted for 3 brain ticks."],
@@ -1794,6 +1804,8 @@ def compute_decision() -> dict:
         guard_reasons.append("recent loss streak raised the learning guard")
     if selected_entry_price > MAX_ENTRY_PRICE:
         guard_reasons.append(f"{best_side} ask {selected_entry_price * 100:.1f}c is above the hard 70.0c max-entry rule")
+    if selected_entry_price < MIN_ENTRY_PRICE:
+        guard_reasons.append(f"{best_side} ask {selected_entry_price * 100:.1f}c is below the hard 5.0c minimum-entry sanity rule")
     guard_text = "; ".join(guard_reasons) if guard_reasons else "signal is not strong enough yet"
     return enrich({
         **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
@@ -1993,6 +2005,7 @@ def settle_active_trade(reason: str = "window rollover") -> None:
         state.active_trade.status = "RESOLVED"
         state.active_trade.actual_outcome = "WIN" if won else "LOSS"
         state.active_trade.exit_price = 1.0 if won else 0.0
+        state.active_trade.btc_exit_price = state.current_price
         payout = state.active_trade.shares_count if won else 0
         state.active_trade.pnl = payout - state.active_trade.stake
         state.settings.balance += payout
@@ -2021,6 +2034,12 @@ async def maybe_trade() -> None:
         ask = state.up_ask if direction == "UP" else state.down_ask
         if ask > MAX_ENTRY_PRICE:
             log("WARN", f"Blocked {direction} entry because ask {ask * 100:.1f}c is above the hard 70.0c max-entry rule.")
+            state.processed_window_id = window_id
+            state.settings.skipped_windows += 1
+            save_setting("skipped_windows", state.settings.skipped_windows)
+            return
+        if ask < MIN_ENTRY_PRICE:
+            log("WARN", f"Blocked {direction} entry because ask {ask * 100:.1f}c is below the hard 5.0c minimum-entry sanity rule.")
             state.processed_window_id = window_id
             state.settings.skipped_windows += 1
             save_setting("skipped_windows", state.settings.skipped_windows)

@@ -92,6 +92,7 @@ export interface Trade {
   exit_price?: number;
   price_to_beat: number;
   btc_entry_price: number;
+  btc_exit_price?: number;
   shares_count: number;
   stake: number;
   fee_paid: number;
