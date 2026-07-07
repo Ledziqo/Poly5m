@@ -59,6 +59,8 @@ def clear_stale_polymarket_window() -> None:
         state.condition_id = ""
         state.best_depth_up = 0
         state.best_depth_down = 0
+        state.up_bid = state.down_bid = 0
+        state.up_ask = state.down_ask = 1
         state.price_to_beat_source = "fallback"
         state.price_to_beat_window_id = ""
         state.price_to_beat_distance_ms = 10**12
@@ -154,6 +156,8 @@ class EngineState:
     condition_id: str = ""
     best_depth_up: float = 0.0
     best_depth_down: float = 0.0
+    invalid_clob_tokens: dict[str, int] = field(default_factory=dict)
+    last_clob_warning_ms: int = 0
     last_binance_rest_sync: float = 0.0
     last_polymarket_sync: float = 0.0
     last_price_update_ms: int = 0
@@ -622,10 +626,9 @@ async def sync_polymarket_hint() -> None:
             event = await fetch_json(f"https://gamma-api.polymarket.com/events/slug/{slug}", 8.0)
         except Exception:
             events = await fetch_json("https://gamma-api.polymarket.com/events?active=true&closed=false&limit=500&order=end_date&ascending=true", 10.0)
-            candidates = [e for e in events if "btc-updown-5m" in str(e.get("slug", "")).lower()]
             now = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
 
-            def event_distance(candidate: dict) -> int:
+            def event_times(candidate: dict) -> tuple[int, int]:
                 candidate_market = (candidate.get("markets") or [None])[0] or {}
                 candidate_end = parse_time_ms(candidate.get("endDate") or candidate.get("end_date") or candidate_market.get("endDate") or candidate_market.get("end_date")) or now + 10**12
                 candidate_start = parse_time_ms(
@@ -636,9 +639,23 @@ async def sync_polymarket_hint() -> None:
                     or candidate_market.get("startTime")
                     or candidate.get("startTime")
                 ) or candidate_end - 5 * 60 * 1000
+                return candidate_start, candidate_end
+
+            candidates = []
+            for candidate in events:
+                if "btc-updown-5m" not in str(candidate.get("slug", "")).lower():
+                    continue
+                _, candidate_end = event_times(candidate)
+                if candidate_end >= now - 2_000:
+                    candidates.append(candidate)
+
+            def event_distance(candidate: dict) -> int:
+                candidate_start, candidate_end = event_times(candidate)
                 if candidate_start <= now <= candidate_end + 5_000:
                     return 0
-                return abs(candidate_start - now) + max(0, candidate_end - now)
+                if candidate_start > now:
+                    return candidate_start - now
+                return 10**12 + abs(candidate_end - now)
 
             event = min(candidates, key=event_distance, default=None)
         market = (event.get("markets") or [None])[0] if event else None
@@ -658,6 +675,10 @@ async def sync_polymarket_hint() -> None:
         if event_end:
             state.pm_window_end = event_end
             state.pm_window_start = event_start or event_end - 5 * 60 * 1000
+        now = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+        if event_end and now > event_end + 2_000:
+            clear_stale_polymarket_window()
+            return
         if previous_slug and previous_slug != state.pm_event_slug:
             state.price_to_beat = 0
             state.price_to_beat_source = "fallback"
@@ -798,6 +819,14 @@ async def sync_clob_books() -> None:
         if state.pm_event_slug:
             log("WARN", f"Polymarket market found ({state.pm_event_slug}) but CLOB token ids are missing; using Gamma odds only.")
         return
+    current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+    if state.pm_window_end and current_time > state.pm_window_end + 2_000:
+        clear_stale_polymarket_window()
+        return
+    token_pair = f"{state.up_token_id}:{state.down_token_id}"
+    bad_until = state.invalid_clob_tokens.get(token_pair, 0)
+    if bad_until > now_ms():
+        return
     try:
         up_book, down_book = await asyncio.gather(
             fetch_json(f"https://clob.polymarket.com/book?token_id={state.up_token_id}", 6.0),
@@ -818,8 +847,22 @@ async def sync_clob_books() -> None:
             state.down_price = state.gamma_down_price
         state.liquidity = max(state.liquidity, state.best_depth_up * state.up_ask + state.best_depth_down * state.down_ask)
         state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB"
+        state.invalid_clob_tokens.pop(token_pair, None)
     except Exception as exc:
-        log("WARN", f"CLOB orderbook degraded: {exc}")
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        state.up_bid = state.down_bid = 0
+        state.up_ask = state.down_ask = 1
+        state.best_depth_up = state.best_depth_down = 0
+        if status_code == 404:
+            state.invalid_clob_tokens[token_pair] = now_ms() + 45_000
+            if now_ms() - state.last_clob_warning_ms > 15_000:
+                log("WARN", "CLOB orderbook unavailable for the current BTC 5m token pair; refreshing Polymarket market data instead of trading stale books.")
+                state.last_clob_warning_ms = now_ms()
+            state.last_polymarket_sync = 0
+            return
+        if now_ms() - state.last_clob_warning_ms > 10_000:
+            log("WARN", f"CLOB orderbook degraded: {exc}")
+            state.last_clob_warning_ms = now_ms()
 
 
 def clob_midpoint(bid: float, ask: float) -> float | None:
