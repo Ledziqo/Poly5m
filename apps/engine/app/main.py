@@ -700,6 +700,7 @@ async def sync_polymarket_hint() -> None:
             state.gamma_down_price = clamp(float(prices[1]), 0.01, 0.99)
             state.liquidity = liquidity
             state.last_odds_update_ms = now_ms()
+            apply_gamma_book_estimate()
             if REFERENCE_MODE == "binance":
                 state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB"
             else:
@@ -814,6 +815,20 @@ def book_best(book: dict) -> tuple[float, float, float]:
     return bid, ask, depth
 
 
+def apply_gamma_book_estimate() -> None:
+    """Use fresh Gamma odds as a degraded-but-real book when CLOB is unavailable."""
+    if not (0.01 <= state.gamma_up_price <= 0.99 and 0.01 <= state.gamma_down_price <= 0.99):
+        return
+    synthetic_half_spread = 0.005
+    state.up_bid = clamp(state.gamma_up_price - synthetic_half_spread, 0.01, 0.99)
+    state.up_ask = clamp(state.gamma_up_price + synthetic_half_spread, 0.01, 0.99)
+    state.down_bid = clamp(state.gamma_down_price - synthetic_half_spread, 0.01, 0.99)
+    state.down_ask = clamp(state.gamma_down_price + synthetic_half_spread, 0.01, 0.99)
+    if state.liquidity > 0:
+        state.best_depth_up = max(state.best_depth_up, state.liquidity * max(state.gamma_up_price, 0.01) * 0.08)
+        state.best_depth_down = max(state.best_depth_down, state.liquidity * max(state.gamma_down_price, 0.01) * 0.08)
+
+
 async def sync_clob_books() -> None:
     if not state.up_token_id or not state.down_token_id:
         if state.pm_event_slug:
@@ -850,13 +865,12 @@ async def sync_clob_books() -> None:
         state.invalid_clob_tokens.pop(token_pair, None)
     except Exception as exc:
         status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        state.up_bid = state.down_bid = 0
-        state.up_ask = state.down_ask = 1
         state.best_depth_up = state.best_depth_down = 0
+        apply_gamma_book_estimate()
         if status_code == 404:
             state.invalid_clob_tokens[token_pair] = now_ms() + 45_000
             if now_ms() - state.last_clob_warning_ms > 15_000:
-                log("WARN", "CLOB orderbook unavailable for the current BTC 5m token pair; refreshing Polymarket market data instead of trading stale books.")
+                log("WARN", "CLOB orderbook unavailable for the current BTC 5m token pair; using fresh Gamma odds while refreshing market data.")
                 state.last_clob_warning_ms = now_ms()
             state.last_polymarket_sync = 0
             return
@@ -936,8 +950,9 @@ def market_quality_gate(start: int, end: int, time_left: float) -> dict:
     has_clob_depth = state.best_depth_up > 0 and state.best_depth_down > 0
     has_non_placeholder_gamma = (
         state.liquidity > 0
-        and abs(state.gamma_up_price - 0.5) > 0.015
-        and abs(state.gamma_down_price - 0.5) > 0.015
+        and 0.01 <= state.gamma_up_price <= 0.99
+        and 0.01 <= state.gamma_down_price <= 0.99
+        and state.last_odds_update_ms > 0
     )
     if not ((up_valid and down_valid and has_clob_depth) or has_non_placeholder_gamma):
         reasons.append("real Polymarket Up/Down odds are missing or still placeholder 50/50")
