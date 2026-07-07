@@ -68,6 +68,7 @@ export default function Dashboard() {
       setData(status);
       setCandles(Array.isArray(candleData) ? candleData : []);
       setHistory(Array.isArray(tradeData) ? tradeData : []);
+      setServerTime(status.server_time || null);
 
       if (status.active_trade && status.active_trade.id !== prevOpenTradeRef.current) {
         toast.success(`Bot entered ${status.active_trade.direction}`, {

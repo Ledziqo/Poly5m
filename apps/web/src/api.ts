@@ -135,6 +135,7 @@ export interface LiveStreamPayload {
 }
 
 export interface DashboardPayload {
+  server_time?: number;
   settings: Settings;
   window: BtcWindow | null;
   decision: Decision | null;

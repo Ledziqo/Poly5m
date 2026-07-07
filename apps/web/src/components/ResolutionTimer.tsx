@@ -1,26 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 
 export default function ResolutionTimer({ targetTimestamp, serverTime, timeLeftSeconds }: { targetTimestamp: number | null, serverTime?: number | null, timeLeftSeconds?: number | null }) {
   const [timeLeft, setTimeLeft] = useState<{ m: string, s: string }>({ m: '00', s: '00' });
-  const syncRef = useRef({ leftMs: 0, syncedAt: performance.now() });
+  const clockOffsetRef = useRef(0);
+  const initialFallbackMs = useMemo(() => Math.max(0, (timeLeftSeconds ?? 0) * 1000), [targetTimestamp]);
 
   useEffect(() => {
-    if (!targetTimestamp) {
-      setTimeLeft({ m: '00', s: '00' });
-      return;
+    if (serverTime) {
+      const measuredOffset = serverTime - Date.now();
+      clockOffsetRef.current = clockOffsetRef.current
+        ? clockOffsetRef.current * 0.85 + measuredOffset * 0.15
+        : measuredOffset;
     }
+  }, [serverTime]);
 
-    const browserNow = Date.now();
-    const clockOffset = serverTime ? serverTime - browserNow : 0;
-    syncRef.current = {
-      leftMs: Math.max(0, timeLeftSeconds != null ? timeLeftSeconds * 1000 : targetTimestamp - (browserNow + clockOffset)),
-      syncedAt: performance.now(),
-    };
-
+  useEffect(() => {
     const updateTimer = () => {
-      const elapsed = performance.now() - syncRef.current.syncedAt;
-      const diff = Math.max(0, syncRef.current.leftMs - elapsed);
+      const syncedNow = Date.now() + clockOffsetRef.current;
+      const diff = targetTimestamp
+        ? Math.max(0, targetTimestamp - syncedNow)
+        : Math.max(0, initialFallbackMs);
 
       if (diff <= 0) {
         setTimeLeft({ m: '00', s: '00' });
@@ -38,7 +38,7 @@ export default function ResolutionTimer({ targetTimestamp, serverTime, timeLeftS
     const interval = setInterval(updateTimer, 100);
 
     return () => clearInterval(interval);
-  }, [targetTimestamp, serverTime, timeLeftSeconds]);
+  }, [targetTimestamp, initialFallbackMs]);
 
   return (
     <motion.div

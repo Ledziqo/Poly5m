@@ -569,6 +569,31 @@ def maybe_capture_price_to_beat(price: float, timestamp_ms: int) -> None:
         log("DATA", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} at {timestamp_ms} for {state.pm_event_slug or window_id}.")
 
 
+def lock_price_to_beat_from_recent_ticks() -> None:
+    if not state.pm_window_start or not state.pm_window_end:
+        return
+    window_id = str(state.pm_window_start)
+    if state.price_to_beat_source == "polymarket" and state.price_to_beat_window_id == window_id:
+        return
+    candidates = [
+        (abs(ts - state.pm_window_start), ts, price)
+        for ts, price in state.price_ticks
+        if state.pm_window_start - 8_000 <= ts <= state.pm_window_start + 15_000
+    ]
+    if not candidates:
+        current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+        if state.current_price and state.pm_window_start <= current_time <= state.pm_window_start + 12_000:
+            candidates = [(abs(current_time - state.pm_window_start), current_time, state.current_price)]
+    if not candidates:
+        return
+    distance, timestamp_ms, price = min(candidates, key=lambda item: item[0])
+    state.price_to_beat = price
+    state.price_to_beat_source = "polymarket"
+    state.price_to_beat_window_id = window_id
+    state.price_to_beat_distance_ms = int(distance)
+    log("DATA", f"Locked BTC 5m price-to-beat ${price:.2f} from nearest Polymarket reference tick ({distance / 1000:.1f}s from open).")
+
+
 async def polymarket_rtds_loop() -> None:
     subscribe = {
         "action": "subscribe",
@@ -675,6 +700,7 @@ async def sync_polymarket_hint() -> None:
         if event_end:
             state.pm_window_end = event_end
             state.pm_window_start = event_start or event_end - 5 * 60 * 1000
+            lock_price_to_beat_from_recent_ticks()
         now = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
         if event_end and now > event_end + 2_000:
             clear_stale_polymarket_window()
@@ -1445,36 +1471,8 @@ def multi_vote_brain(best_side: str, fair_up: float, fair_down: float, learned_e
 
 
 def recommended_stake(conviction: int, memory: dict, read: dict, indicators: dict, spread: float, similar: dict, selected_entry_price: float) -> tuple[float, list[str]]:
-    multiplier = 1.0
-    reasons = []
-    if conviction >= 84:
-        multiplier += 0.16
-        reasons.append("high conviction allows normal-plus stake")
-    elif conviction < 72:
-        multiplier -= 0.25
-        reasons.append("conviction below strong threshold reduces stake")
-    if memory["loss_streak"]:
-        reduction = min(0.45, memory["loss_streak"] * 0.12)
-        multiplier -= reduction
-        reasons.append(f"loss guard reduces stake by {reduction * 100:.0f}%")
-    if read["regime"] in ("choppy", "exhaustion-risk"):
-        multiplier -= 0.16
-        reasons.append(f"{read['regime']} regime reduces stake")
-    if indicators["volatility"] > 0.0024:
-        multiplier -= 0.12
-        reasons.append("high volatility reduces stake")
-    if spread > 0.04:
-        multiplier -= 0.18
-        reasons.append("wide spread reduces stake")
-    if selected_entry_price > 0.72:
-        multiplier -= 0.10
-        reasons.append("expensive odds reduce stake")
-    if similar["sample"] >= 8 and similar["rate"] < 0.48:
-        multiplier -= 0.22
-        reasons.append("similar setups have underperformed")
-    multiplier = clamp(multiplier, 0.35, 1.15)
-    stake = min(state.settings.max_trade_amount, state.settings.stake_amount * multiplier, state.settings.balance)
-    return max(1.0, stake), reasons[:3] or ["standard stake"]
+    stake = min(state.settings.max_trade_amount, state.settings.stake_amount, state.settings.balance)
+    return max(1.0, stake), ["fixed stake from settings"]
 
 
 def bayesian_market_probability(model_up: float, indicators: dict, read: dict, distance: float, time_left: float) -> dict:
@@ -2028,6 +2026,7 @@ def window_payload() -> dict:
 
 def dashboard_payload() -> dict:
     return {
+        "server_time": polymarket_now_ms() if state.chainlink_status == "live" else now_ms(),
         "settings": state.settings.__dict__,
         "window": window_payload(),
         "decision": compute_decision(),
@@ -2210,7 +2209,7 @@ async def stream():
                 "candles": state.candles[-180:],
                 "history": [trade_payload(t) for t in reversed(state.history[-100:])],
                 "logs": list(reversed(state.logs[-100:])),
-                "server_time": now_ms(),
+                "server_time": polymarket_now_ms() if state.chainlink_status == "live" else now_ms(),
             }
             yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
             await asyncio.sleep(0.1)
