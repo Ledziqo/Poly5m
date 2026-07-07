@@ -300,9 +300,14 @@ function MetricCard({ label, icon, value, sub, tone = 'white' }: { label: string
 }
 
 function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean }) {
-  const livePnl = active ? (trade.unrealized_pnl ?? trade.pnl) : trade.pnl;
-  const markPrice = active ? trade.mark_price : trade.exit_price;
-  const endingBtc = active ? undefined : trade.btc_exit_price;
+  const numberOrNull = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+  const livePnl = numberOrNull(active ? (trade.unrealized_pnl ?? trade.pnl) : trade.pnl) ?? 0;
+  const markPrice = numberOrNull(active ? trade.mark_price : trade.exit_price);
+  const entryBtc = numberOrNull(trade.btc_entry_price);
+  const beatBtc = numberOrNull(trade.price_to_beat);
+  const endingBtc = active ? null : numberOrNull(trade.btc_exit_price);
+  const entryPrice = numberOrNull(trade.entry_price);
+  const feePaid = numberOrNull(trade.fee_paid) ?? 0;
   return (
     <motion.div
       initial={{ opacity: 0, y: 5 }}
@@ -319,20 +324,20 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
           {trade.forced_trade && <span className="text-[10px] bg-orange-500/10 text-orange-300 px-1.5 py-0.5 rounded border border-orange-500/20">FORCED</span>}
         </div>
         <div className="text-slate-400 text-[10px] flex flex-wrap items-center gap-2">
-          <span>Entry ${trade.btc_entry_price.toFixed(2)}</span>
-          <span className="text-slate-600">-</span>
-          <span>Beat ${trade.price_to_beat.toFixed(2)}</span>
-          <span className="text-slate-600">-</span>
-          {endingBtc !== undefined && (
+          {entryBtc !== null && <span>Entry ${entryBtc.toFixed(2)}</span>}
+          {entryBtc !== null && beatBtc !== null && <span className="text-slate-600">-</span>}
+          {beatBtc !== null && <span>Beat ${beatBtc.toFixed(2)}</span>}
+          {(entryBtc !== null || beatBtc !== null) && (endingBtc !== null || entryPrice !== null) && <span className="text-slate-600">-</span>}
+          {endingBtc !== null && (
             <>
               <span>End ${endingBtc.toFixed(2)}</span>
               <span className="text-slate-600">-</span>
             </>
           )}
-          <span>{(trade.entry_price * 100).toFixed(1)}c</span>
+          {entryPrice !== null && <span>{(entryPrice * 100).toFixed(1)}c</span>}
           <span className="text-slate-600">-</span>
-          <span>fee ${trade.fee_paid.toFixed(2)}</span>
-          {active && markPrice !== undefined && (
+          <span>fee ${feePaid.toFixed(2)}</span>
+          {active && markPrice !== null && (
             <>
               <span className="text-slate-600">-</span>
               <span>mark {(markPrice * 100).toFixed(1)}c</span>
