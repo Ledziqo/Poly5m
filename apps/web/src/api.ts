@@ -42,6 +42,9 @@ export interface BtcWindow {
 export interface Decision {
   direction: Direction;
   confidence: number;
+  eligible: boolean;
+  eligibility_reason: string;
+  tradeability: string;
   conviction: number;
   recommended_stake: number;
   fair_up: number;
@@ -61,6 +64,8 @@ export interface Decision {
     learning_samples: number;
     similar_win_rate: number;
     similar_sample: number;
+    time_bucket: string;
+    odds_bucket: string;
     loss_guard: string;
     votes: Record<string, number>;
     stake_reasons: string[];
@@ -136,6 +141,30 @@ export interface DashboardPayload {
   analytics: Analytics;
 }
 
+export interface PerformanceGroup {
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  pnl: number;
+  expectancy: number;
+}
+
+export interface BrainPerformance {
+  total: PerformanceGroup;
+  last50: PerformanceGroup;
+  by_side: Record<string, PerformanceGroup>;
+  by_time_bucket: Record<string, PerformanceGroup>;
+  by_odds_bucket: Record<string, PerformanceGroup>;
+  by_spread_bucket: Record<string, PerformanceGroup>;
+  by_volatility_bucket: Record<string, PerformanceGroup>;
+  by_regime: Record<string, PerformanceGroup>;
+  forced: PerformanceGroup;
+  normal: PerformanceGroup;
+  best_time_bucket: PerformanceGroup & { bucket: string };
+  worst_time_bucket: PerformanceGroup & { bucket: string };
+}
+
 export async function getDashboard() {
   const res = await axios.get<DashboardPayload>('/api/status');
   return res.data;
@@ -153,6 +182,11 @@ export async function getHistory() {
 
 export async function getLogs() {
   const res = await axios.get<LogEntry[]>('/api/logs');
+  return res.data;
+}
+
+export async function getBrainPerformance() {
+  const res = await axios.get<BrainPerformance>('/api/brain/performance');
   return res.data;
 }
 

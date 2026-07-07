@@ -128,8 +128,9 @@ export default function PredictionCard({
             {decision.direction === 'WAIT' && <Timer className="w-4 h-4" />}
             {decision.direction === 'WAIT' ? 'WAIT' : `TAKE ${decision.direction}`}
           </div>
-          <div className="text-xs text-slate-400">
-            Net edge: <span className={decision.best_edge > 0 ? 'text-emerald-400' : 'text-rose-400'}>{(decision.best_edge * 100).toFixed(2)}c</span>
+          <div className="text-xs text-slate-400 text-right">
+            <div>Tradeability: <span className={decision.eligible ? 'text-emerald-400' : 'text-orange-300'}>{decision.eligible ? 'eligible' : decision.tradeability || 'waiting'}</span></div>
+            <div>Net edge: <span className={decision.best_edge > 0 ? 'text-emerald-400' : 'text-rose-400'}>{(decision.best_edge * 100).toFixed(2)}c</span></div>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -160,6 +161,8 @@ export default function PredictionCard({
         <div className="grid grid-cols-2 gap-2 text-[11px]">
           <BrainMetric label="Learning samples" value={`${decision.brain_state?.learning_samples ?? 0}`} />
           <BrainMetric label="Similar setup" value={`${(((decision.brain_state?.similar_win_rate ?? 0.5) * 100)).toFixed(0)}% / ${decision.brain_state?.similar_sample ?? 0}`} />
+          <BrainMetric label="Time bucket" value={decision.brain_state?.time_bucket || 'waiting'} />
+          <BrainMetric label="Odds bucket" value={decision.brain_state?.odds_bucket || 'waiting'} />
           <BrainMetric label="Loss guard" value={decision.brain_state?.loss_guard || 'clear'} />
           <BrainMetric label="Stake logic" value={(decision.brain_state?.stake_reasons || ['standard stake'])[0]} />
         </div>
@@ -170,6 +173,11 @@ export default function PredictionCard({
           <Zap className="w-3 h-3 text-cyan-400" /> Bot Reasoning
         </div>
         <div className="space-y-2">
+          {!decision.eligible && decision.eligibility_reason && (
+            <div className="text-xs text-orange-200 bg-orange-500/[0.07] border border-orange-500/15 rounded-lg px-3 py-2">
+              Eligibility: {decision.eligibility_reason}
+            </div>
+          )}
           {(decision.reasons.length ? decision.reasons : [decision.no_trade_reason || 'Waiting for stronger fee-adjusted edge.']).map((reason, i) => (
             <div key={i} className="text-xs text-slate-300 bg-white/[0.03] border border-white/5 rounded-lg px-3 py-2">
               {reason}

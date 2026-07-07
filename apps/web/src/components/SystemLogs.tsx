@@ -52,6 +52,10 @@ export default function SystemLogs({ streamLogs }: { streamLogs?: LogEntry[] }) 
   const getLevelColor = (level: string) => {
     switch (level) {
       case 'INFO': return 'text-blue-400';
+      case 'DATA': return 'text-cyan-300';
+      case 'THINK': return 'text-purple-300';
+      case 'BLOCK': return 'text-orange-300';
+      case 'LEARN': return 'text-emerald-300';
       case 'WARN': return 'text-yellow-400';
       case 'ERROR': return 'text-red-400';
       case 'TRADE': return 'text-pink-400';

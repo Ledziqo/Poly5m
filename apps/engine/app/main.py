@@ -62,7 +62,7 @@ def clear_stale_polymarket_window() -> None:
         state.price_to_beat_window_id = ""
         state.price_to_beat_distance_ms = 10**12
         if old_slug:
-            log("INFO", f"Rolled past expired Polymarket window {old_slug}; waiting for the next BTC 5m market.")
+            log("DATA", f"Rolled past expired Polymarket window {old_slug}; waiting for the next BTC 5m market.")
 
 
 def clamp(value: float, low: float, high: float) -> float:
@@ -122,6 +122,7 @@ class EngineState:
     candles: list[dict] = field(default_factory=list)
     logs: list[dict] = field(default_factory=list)
     history: list[Trade] = field(default_factory=list)
+    price_ticks: list[tuple[int, float]] = field(default_factory=list)
     active_trade: Trade | None = None
     current_price: float = 0.0
     indicator_price: float = 0.0
@@ -153,6 +154,8 @@ class EngineState:
     best_depth_down: float = 0.0
     last_binance_rest_sync: float = 0.0
     last_polymarket_sync: float = 0.0
+    last_price_update_ms: int = 0
+    last_odds_update_ms: int = 0
     last_chainlink_sync: float = 0.0
     last_chainlink_price_timestamp: int = 0
     polymarket_clock_offset_ms: int = 0
@@ -384,6 +387,7 @@ async def sync_binance() -> None:
           fetch_json("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=90"),
       )
       fallback_price = float(ticker["price"])
+      state.last_price_update_ms = now_ms()
       if state.chainlink_status != "live":
           state.indicator_price = fallback_price
       if state.chainlink_status != "live" and (REFERENCE_MODE == "binance" or not state.current_price):
@@ -518,6 +522,10 @@ def apply_polymarket_chainlink_snapshot(points: list[dict]) -> None:
 
 
 def update_reference_candle(price: float, timestamp_ms: int) -> None:
+    state.last_price_update_ms = max(state.last_price_update_ms, timestamp_ms)
+    state.price_ticks.append((timestamp_ms, price))
+    cutoff = timestamp_ms - 10 * 60 * 1000
+    state.price_ticks = [(ts, px) for ts, px in state.price_ticks[-1200:] if ts >= cutoff]
     minute = (timestamp_ms // 60_000) * 60_000
     if state.candles and state.candles[-1]["timestamp"] == minute:
         candle = state.candles[-1]
@@ -548,7 +556,7 @@ def maybe_capture_price_to_beat(price: float, timestamp_ms: int) -> None:
         state.price_to_beat_source = "polymarket"
         state.price_to_beat_window_id = window_id
         state.price_to_beat_distance_ms = distance
-        log("INFO", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} at {timestamp_ms} for {state.pm_event_slug or window_id}.")
+        log("DATA", f"Captured Polymarket Chainlink price-to-beat ${price:.2f} at {timestamp_ms} for {state.pm_event_slug or window_id}.")
 
 
 async def polymarket_rtds_loop() -> None:
@@ -566,7 +574,7 @@ async def polymarket_rtds_loop() -> None:
         try:
             async with websockets.connect("wss://ws-live-data.polymarket.com", ping_interval=None, ping_timeout=None) as ws:
                 await ws.send(json.dumps(subscribe))
-                log("INFO", "Polymarket Chainlink BTC/USD stream connected.")
+                log("DATA", "Polymarket Chainlink BTC/USD stream connected.")
                 last_ping = time.time()
                 async for raw in ws:
                     if time.time() - last_ping >= 5:
@@ -664,6 +672,7 @@ async def sync_polymarket_hint() -> None:
             state.gamma_up_price = clamp(float(prices[0]), 0.01, 0.99)
             state.gamma_down_price = clamp(float(prices[1]), 0.01, 0.99)
             state.liquidity = liquidity
+            state.last_odds_update_ms = now_ms()
             if REFERENCE_MODE == "binance":
                 state.reference_source = "Polymarket Chainlink BTC/USD + Polymarket CLOB"
             else:
@@ -790,6 +799,7 @@ async def sync_clob_books() -> None:
         )
         state.up_bid, state.up_ask, state.best_depth_up = book_best(up_book)
         state.down_bid, state.down_ask, state.best_depth_down = book_best(down_book)
+        state.last_odds_update_ms = now_ms()
         up_mid = clob_midpoint(state.up_bid, state.up_ask)
         down_mid = clob_midpoint(state.down_bid, state.down_ask)
         if up_mid is not None:
@@ -823,6 +833,83 @@ def returns(seconds: int) -> float:
     ago_idx = max(0, len(state.candles) - max(2, seconds // 60 + 1))
     old = state.candles[ago_idx]["close"]
     return (close - old) / old if old else 0.0
+
+
+def tick_return(seconds: int) -> float:
+    if not state.price_ticks or not state.current_price:
+        return returns(max(60, seconds))
+    cutoff = now_ms() - seconds * 1000
+    old = next((price for ts, price in state.price_ticks if ts >= cutoff), state.price_ticks[0][1])
+    return (state.current_price - old) / old if old else 0.0
+
+
+def time_bucket(time_left: float) -> str:
+    if time_left >= 240:
+        return "4:40-4:00"
+    if time_left >= 200:
+        return "4:00-3:20"
+    if time_left >= 160:
+        return "3:20-2:40"
+    if time_left >= 140:
+        return "2:40-2:20"
+    return "outside-entry"
+
+
+def odds_bucket(price: float) -> str:
+    return bucket(price, [0.30, 0.45, 0.58, 0.70], ["cheap", "value", "mid", "high", "blocked"])
+
+
+def spread_bucket(spread: float) -> str:
+    return bucket(spread * 100, [1.5, 3.0, 5.5], ["tight", "normal", "wide", "blocked"])
+
+
+def volatility_bucket(volatility: float) -> str:
+    return bucket(volatility, [0.0007, 0.0015, 0.0028], ["quiet", "normal", "fast", "violent"])
+
+
+def market_quality_gate(start: int, end: int, time_left: float) -> dict:
+    current_time = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+    reasons = []
+    active_window = bool(state.pm_event_slug and state.pm_window_start and state.pm_window_end and state.pm_window_start <= current_time <= state.pm_window_end + 5_000)
+    if not active_window:
+        reasons.append("active Polymarket BTC 5m window is not synced")
+    if state.price_to_beat_source == "fallback" or not state.price_to_beat:
+        reasons.append("price-to-beat is not locked from Polymarket/opening reference")
+    if not state.current_price:
+        reasons.append("BTC reference price is missing")
+    elif state.last_price_update_ms and now_ms() - state.last_price_update_ms > 5_000:
+        reasons.append(f"BTC reference price is stale by {(now_ms() - state.last_price_update_ms) / 1000:.1f}s")
+    if not (state.up_token_id and state.down_token_id):
+        reasons.append("Polymarket CLOB token IDs are missing")
+
+    up_valid = 0.01 <= state.up_bid <= state.up_ask <= 0.99
+    down_valid = 0.01 <= state.down_bid <= state.down_ask <= 0.99
+    has_clob_depth = state.best_depth_up > 0 and state.best_depth_down > 0
+    has_non_placeholder_gamma = (
+        state.liquidity > 0
+        and abs(state.gamma_up_price - 0.5) > 0.015
+        and abs(state.gamma_down_price - 0.5) > 0.015
+    )
+    if not ((up_valid and down_valid and has_clob_depth) or has_non_placeholder_gamma):
+        reasons.append("real Polymarket Up/Down odds are missing or still placeholder 50/50")
+    if state.last_odds_update_ms and now_ms() - state.last_odds_update_ms > 8_000:
+        reasons.append(f"Polymarket odds are stale by {(now_ms() - state.last_odds_update_ms) / 1000:.1f}s")
+
+    spread = max(state.up_ask - state.up_bid, state.down_ask - state.down_bid)
+    if spread > 0.055:
+        reasons.append(f"spread is too wide at {spread * 100:.1f}c")
+    if state.up_bid > state.up_ask or state.down_bid > state.down_ask:
+        reasons.append("order book is crossed")
+    if state.up_ask > MAX_ENTRY_PRICE and state.down_ask > MAX_ENTRY_PRICE:
+        reasons.append("both sides are above the hard 70c max-entry rule")
+
+    return {
+        "eligible": not reasons,
+        "reason": "; ".join(reasons) if reasons else "eligible: live Polymarket window, locked reference, fresh odds, clean spread",
+        "reasons": reasons,
+        "spread": spread,
+        "time_bucket": time_bucket(time_left),
+    }
 
 
 def ema(values: list[float], period: int) -> float:
@@ -870,6 +957,13 @@ def indicator_pack() -> dict:
             "volatility": 0.0008,
             "acceleration": 0,
             "orderbook_imbalance": 0,
+            "momentum_5s": 0,
+            "momentum_15s": 0,
+            "momentum_30s": 0,
+            "momentum_60s": 0,
+            "macd_impulse": 0,
+            "bollinger_position": 0,
+            "wick_pressure": 0,
         }
     fast = ema(closes[-12:], 9)
     slow = ema(closes[-26:], 21)
@@ -881,6 +975,18 @@ def indicator_pack() -> dict:
     m15 = returns(60)
     m60 = returns(180)
     acceleration = m15 - (m60 / 3)
+    ema12 = ema(closes[-26:], 12)
+    ema26 = ema(closes[-34:], 26)
+    prev_ema12 = ema(closes[-32:-6], 12) if len(closes) >= 32 else ema12
+    prev_ema26 = ema(closes[-40:-6], 26) if len(closes) >= 40 else ema26
+    macd_impulse = ((ema12 - ema26) - (prev_ema12 - prev_ema26)) / max(1, state.current_price)
+    mean20 = sum(closes[-20:]) / 20
+    variance20 = sum((x - mean20) ** 2 for x in closes[-20:]) / 20
+    band = max(1, math.sqrt(variance20) * 2)
+    bollinger_position = clamp((state.current_price - mean20) / band, -2.0, 2.0)
+    last = candles[-1]
+    candle_range = max(1, last["high"] - last["low"])
+    wick_pressure = clamp(((last["close"] - last["low"]) - (last["high"] - last["close"])) / candle_range, -1.0, 1.0)
     depth_total = state.best_depth_up + state.best_depth_down
     orderbook_imbalance = (state.best_depth_up - state.best_depth_down) / depth_total if depth_total else 0
     return {
@@ -892,6 +998,13 @@ def indicator_pack() -> dict:
         "volatility": volatility,
         "acceleration": acceleration,
         "orderbook_imbalance": orderbook_imbalance,
+        "momentum_5s": tick_return(5),
+        "momentum_15s": tick_return(15),
+        "momentum_30s": tick_return(30),
+        "momentum_60s": tick_return(60),
+        "macd_impulse": macd_impulse,
+        "bollinger_position": bollinger_position,
+        "wick_pressure": wick_pressure,
     }
 
 
@@ -923,7 +1036,8 @@ def pattern_memory() -> dict:
 
 
 def market_read(indicators: dict, r1: float, r3: float, distance: float, time_left: float) -> dict:
-    trend_strength = abs(indicators["ema_slope"] * 950) + abs(indicators["vwap_distance"] * 420) + abs(r1 * 700)
+    micro_stack = abs(indicators["momentum_5s"] * 4200) + abs(indicators["momentum_15s"] * 2600) + abs(indicators["momentum_30s"] * 1600)
+    trend_strength = abs(indicators["ema_slope"] * 950) + abs(indicators["vwap_distance"] * 420) + abs(r1 * 700) + micro_stack
     chop_penalty = max(0.0, indicators["volatility"] * 1200 - trend_strength)
     direction_agreement = 0
     direction_agreement += 1 if indicators["ema_slope"] > 0 else -1
@@ -931,6 +1045,8 @@ def market_read(indicators: dict, r1: float, r3: float, distance: float, time_le
     direction_agreement += 1 if r1 > 0 else -1
     direction_agreement += 1 if r3 > 0 else -1
     direction_agreement += 1 if distance > 0 else -1
+    direction_agreement += 1 if indicators["macd_impulse"] > 0 else -1
+    direction_agreement += 1 if indicators["wick_pressure"] > 0 else -1
 
     if chop_penalty > 1.4:
         regime = "choppy"
@@ -1182,7 +1298,12 @@ def multi_vote_brain(best_side: str, fair_up: float, fair_down: float, learned_e
             + clamp(indicators["vwap_distance"] * 310, -0.28, 0.28)
             + clamp(returns(60) * 850, -0.30, 0.30)
             + clamp(returns(180) * 280, -0.24, 0.24)
+            + clamp(indicators["momentum_5s"] * 2800, -0.18, 0.18)
+            + clamp(indicators["momentum_15s"] * 1900, -0.18, 0.18)
+            + clamp(indicators["momentum_30s"] * 1250, -0.16, 0.16)
             + clamp(indicators["acceleration"] * 760, -0.22, 0.22)
+            + clamp(indicators["macd_impulse"] * 1600, -0.12, 0.12)
+            + clamp(indicators["wick_pressure"] * 0.08, -0.08, 0.08)
         ) * side_sign,
         -1.0,
         1.0,
@@ -1192,6 +1313,8 @@ def multi_vote_brain(best_side: str, fair_up: float, fair_down: float, learned_e
         exhaustion_against_up -= 0.34
     elif indicators["rsi"] < 26:
         exhaustion_against_up += 0.34
+    if abs(indicators.get("bollinger_position", 0)) > 1.25:
+        exhaustion_against_up += -0.10 if indicators["bollinger_position"] > 0 else 0.10
     if time_left < 140 and abs(distance) > 0.00055:
         exhaustion_against_up += -0.18 if distance > 0 else 0.18
     reversal_vote = clamp(exhaustion_against_up * side_sign, -1.0, 1.0)
@@ -1364,9 +1487,13 @@ def entry_snapshot(direction: str, confidence: int, forced: bool, read: dict, in
         "chop_penalty": read["chop_penalty"],
         "distance": distance,
         "time_left": time_left,
+        "time_bucket": time_bucket(time_left),
         "spread": spread,
+        "spread_bucket": spread_bucket(spread),
         "liquidity": liquidity,
         "entry_price": entry_price,
+        "odds_bucket": odds_bucket(entry_price),
+        "volatility_bucket": volatility_bucket(indicators.get("volatility", 0)),
         "fair_up": fair_up,
         "fair_down": fair_down,
         "edge_up": edge_up,
@@ -1416,18 +1543,15 @@ def compute_decision() -> dict:
     window_id = str(start)
     if not price or not strike:
         return wait_decision("Waiting for confirmed BTC price and price-to-beat.")
-
-    has_chainlink = state.chainlink_status == "live" or REFERENCE_MODE == "binance"
-    has_book_odds = bool(state.up_token_id and state.down_token_id and (state.best_depth_up > 0 or state.best_depth_down > 0))
-    has_gamma_odds = state.liquidity > 0 and (abs(state.gamma_up_price - 0.5) > 0.015 or abs(state.gamma_down_price - 0.5) > 0.015)
-    has_real_odds = bool(state.pm_event_slug and (has_book_odds or has_gamma_odds))
-    if not has_chainlink:
-        decision = wait_decision("Waiting for Chainlink/reference BTC/USD before trading.")
-        decision["reasons"].append("Exchange price can update the chart, but entries require the configured reference source.")
-        return decision
-    if not has_real_odds:
-        decision = wait_decision("Waiting for real Polymarket BTC 5m odds/liquidity before considering a trade.")
-        decision["reasons"].append("Chainlink/reference is live, but the bot still needs the active BTC 5m event plus CLOB book depth or non-placeholder Gamma odds.")
+    quality = market_quality_gate(start, end, time_left)
+    if not quality["eligible"]:
+        decision = wait_decision(quality["reason"])
+        decision["eligible"] = False
+        decision["tradeability"] = "ineligible"
+        decision["eligibility_reason"] = quality["reason"]
+        decision["reasons"].append("This window is blocked before the brain votes, because paper trading must match real Polymarket pricing and settlement.")
+        decision["brain_state"]["time_bucket"] = quality["time_bucket"]
+        decision["risk_warnings"] = quality["reasons"][:3]
         return decision
 
     indicators = indicator_pack()
@@ -1487,6 +1611,14 @@ def compute_decision() -> dict:
     raw_best_edge = max(edge_up, edge_down)
     selected_learning = up_learning if best_side == "UP" else down_learning
     selected_entry_price = state.up_ask if best_side == "UP" else state.down_ask
+    if selected_entry_price > MAX_ENTRY_PRICE:
+        alternate_side = "DOWN" if best_side == "UP" else "UP"
+        alternate_price = state.down_ask if alternate_side == "DOWN" else state.up_ask
+        if alternate_price <= MAX_ENTRY_PRICE:
+            best_side = alternate_side
+            best_edge = learned_edge_down if best_side == "DOWN" else learned_edge_up
+            selected_learning = down_learning if best_side == "DOWN" else up_learning
+            selected_entry_price = alternate_price
     similar = similarity_memory(best_side, read, indicators, distance, time_left, spread, selected_entry_price)
     selected_learning = {**selected_learning, "bias": clamp(selected_learning["bias"] + similar["bias"], -0.28, 0.22)}
     if best_side == "UP":
@@ -1541,7 +1673,12 @@ def compute_decision() -> dict:
     conviction_floor = {"safe": 82, "balanced": 75, "aggressive": 68}.get(state.settings.risk_mode, 75) + min(10, memory["loss_streak"] * 3)
 
     def enrich(payload: dict) -> dict:
+        selected_price = state.up_ask if payload.get("direction") == "UP" else state.down_ask if payload.get("direction") == "DOWN" else selected_entry_price
+        eligible_payload = bool(quality["eligible"] and payload.get("action") == "ENTER")
         payload.update({
+            "eligible": eligible_payload,
+            "tradeability": "eligible" if quality["eligible"] else "ineligible",
+            "eligibility_reason": quality["reason"] if quality["eligible"] else quality["reason"],
             "conviction": conviction,
             "recommended_stake": stake_amount,
             "supporting_signals": vote_brain["supporting_signals"],
@@ -1551,6 +1688,8 @@ def compute_decision() -> dict:
                 "learning_samples": len(learning_rows()),
                 "similar_win_rate": similar["rate"],
                 "similar_sample": similar["sample"],
+                "time_bucket": time_bucket(time_left),
+                "odds_bucket": odds_bucket(selected_price),
                 "loss_guard": vote_brain["loss_guard"],
                 "votes": vote_brain["votes"],
                 "stake_reasons": stake_reasons,
@@ -1572,22 +1711,22 @@ def compute_decision() -> dict:
     force_blockers = []
     forced_edge_floor = FORCED_EDGE_FLOOR + loss_caution
     forced_confidence_floor = FORCED_MIN_CONFIDENCE + min(12, memory["loss_streak"] * 4)
-    if not cadence_forced and best_edge < forced_edge_floor:
-        force_blockers.append(f"best learned edge {best_edge * 100:+.2f}c is worse than the adaptive forced-entry floor {forced_edge_floor * 100:+.1f}c")
-    if not cadence_forced and confidence < forced_confidence_floor:
-        force_blockers.append(f"confidence {confidence}% is below the adaptive forced-entry floor {forced_confidence_floor}%")
-    if not cadence_forced and conviction < conviction_floor:
-        force_blockers.append(f"conviction {conviction}/100 is below the adaptive conviction floor {conviction_floor}/100")
-    if not cadence_forced and read["regime"] == "choppy" and memory["loss_streak"] >= 1:
-        force_blockers.append("market is choppy after a recent loss, so forcing would repeat the same failure pattern")
+    if best_edge < forced_edge_floor:
+        data_reasons.append(f"Cutoff warning: learned edge {best_edge * 100:+.2f}c is below the old forced-entry floor {forced_edge_floor * 100:+.1f}c, so stake is reduced instead of skipping.")
+    if confidence < forced_confidence_floor:
+        data_reasons.append(f"Cutoff warning: confidence {confidence}% is below the old forced-entry floor {forced_confidence_floor}%, so this is treated as a lower-conviction required eligible trade.")
+    if conviction < conviction_floor:
+        data_reasons.append(f"Cutoff warning: conviction {conviction}/100 is below the normal {conviction_floor}/100 quality gate, so stake is reduced instead of skipping.")
+    if read["regime"] == "choppy" and memory["loss_streak"] >= 1:
+        data_reasons.append("Cutoff warning: market is choppy after a recent loss; the bot still trades the eligible round but with risk reduced.")
     if selected_entry_price > MAX_ENTRY_PRICE:
         force_blockers.append(f"{best_side} ask is {selected_entry_price * 100:.1f}c, above the hard 70.0c max-entry rule")
     elif not cadence_forced and selected_entry_price > 0.68 and best_edge < 0.02:
         force_blockers.append(f"{best_side} ask is expensive at {selected_entry_price * 100:.1f}c without enough edge after fees")
     if spread > 0.055:
         force_blockers.append(f"spread is too wide at {spread * 100:.1f}c for a forced entry")
-    if not cadence_forced and memory["loss_streak"] >= 2 and selected_learning["calibration_sample"] >= 5 and selected_learning["calibrated_rate"] < 0.48:
-        force_blockers.append(f"learning memory says this setup bucket is weak: {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} samples")
+    if memory["loss_streak"] >= 2 and selected_learning["calibration_sample"] >= 5 and selected_learning["calibrated_rate"] < 0.48:
+        data_reasons.append(f"Cutoff warning: learning memory says this setup bucket is weak at {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} samples; stake is reduced rather than skipping.")
 
     if force_window_reached and not state.active_trade and force_blockers:
         return enrich({
@@ -1676,6 +1815,9 @@ def base_decision(direction: Direction, fair_up: float, fair_down: float, edge_u
         "expected_fee_cost": fee,
         "forced_trade": forced,
         "action": action,
+        "eligible": action == "ENTER",
+        "eligibility_reason": "entry-ready" if action == "ENTER" else "waiting",
+        "tradeability": "eligible" if action == "ENTER" else "waiting",
         "reasons": [],
         "conviction": 0,
         "recommended_stake": state.settings.stake_amount,
@@ -1686,6 +1828,8 @@ def base_decision(direction: Direction, fair_up: float, fair_down: float, edge_u
             "learning_samples": len(learning_rows()),
             "similar_win_rate": 0.5,
             "similar_sample": 0,
+            "time_bucket": "waiting",
+            "odds_bucket": "waiting",
             "loss_guard": "clear",
             "votes": {},
             "stake_reasons": [],
@@ -1700,7 +1844,11 @@ def base_decision(direction: Direction, fair_up: float, fair_down: float, edge_u
 
 
 def wait_decision(reason: str) -> dict:
-    return {**base_decision("WAIT", 0.5, 0.5, 0, 0, 0, state.settings.taker_fee_rate, False, 0, "WAIT"), "reasons": [reason], "no_trade_reason": reason}
+    payload = {**base_decision("WAIT", 0.5, 0.5, 0, 0, 0, state.settings.taker_fee_rate, False, 0, "WAIT"), "reasons": [reason], "no_trade_reason": reason}
+    payload["eligible"] = False
+    payload["tradeability"] = "waiting"
+    payload["eligibility_reason"] = reason
+    return payload
 
 
 def analytics() -> dict:
@@ -1729,6 +1877,53 @@ def analytics() -> dict:
         "best_trade": max([t.pnl for t in resolved], default=0),
         "worst_trade": min([t.pnl for t in resolved], default=0),
         "learning_samples": len(learning_rows()),
+    }
+
+
+def summarize_rows(rows: list[dict]) -> dict:
+    total = len(rows)
+    wins = len([row for row in rows if row.get("outcome") == "WIN"])
+    pnl = sum(float(row.get("pnl") or 0) for row in rows)
+    return {
+        "trades": total,
+        "wins": wins,
+        "losses": total - wins,
+        "win_rate": wins / total if total else 0,
+        "pnl": pnl,
+        "expectancy": pnl / total if total else 0,
+    }
+
+
+def grouped_performance(rows: list[dict], key: str) -> dict:
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        features = row.get("features") or {}
+        group = str(features.get(key) or row.get(key) or "unknown")
+        groups.setdefault(group, []).append(row)
+    return {name: summarize_rows(items) for name, items in sorted(groups.items())}
+
+
+def brain_performance() -> dict:
+    rows = learning_rows(1000)
+    last50 = rows[-50:]
+    time_groups = grouped_performance(rows, "time_bucket")
+    best_time_bucket = max(time_groups.items(), key=lambda item: item[1]["expectancy"], default=("none", summarize_rows([])))
+    worst_time_bucket = min(time_groups.items(), key=lambda item: item[1]["expectancy"], default=("none", summarize_rows([])))
+    forced_rows = [row for row in rows if row.get("forced")]
+    normal_rows = [row for row in rows if not row.get("forced")]
+    return {
+        "total": summarize_rows(rows),
+        "last50": summarize_rows(last50),
+        "by_side": grouped_performance(rows, "direction"),
+        "by_time_bucket": time_groups,
+        "by_odds_bucket": grouped_performance(rows, "odds_bucket"),
+        "by_spread_bucket": grouped_performance(rows, "spread_bucket"),
+        "by_volatility_bucket": grouped_performance(rows, "volatility_bucket"),
+        "by_regime": grouped_performance(rows, "regime"),
+        "forced": summarize_rows(forced_rows),
+        "normal": summarize_rows(normal_rows),
+        "best_time_bucket": {"bucket": best_time_bucket[0], **best_time_bucket[1]},
+        "worst_time_bucket": {"bucket": worst_time_bucket[0], **worst_time_bucket[1]},
     }
 
 
@@ -1805,6 +2000,7 @@ def settle_active_trade(reason: str = "window rollover") -> None:
         persist_learning_sample(state.active_trade)
         save_setting("balance", state.settings.balance)
         log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f} ({reason}). Autopsy: {loss_autopsy(state.active_trade)}.")
+        log("LEARN", f"Stored learning sample for {state.active_trade.direction} {state.active_trade.actual_outcome}: time bucket {(state.active_trade.entry_features or {}).get('time_bucket', 'unknown')}, odds bucket {(state.active_trade.entry_features or {}).get('odds_bucket', 'unknown')}, PnL {state.active_trade.pnl:+.2f}.")
         state.active_trade = None
 
 
@@ -1868,7 +2064,8 @@ async def maybe_trade() -> None:
             state.settings.skipped_windows += 1
             save_setting("skipped_windows", state.settings.skipped_windows)
             reason = decision.get("no_trade_reason") or (decision.get("reasons") or ["Capital-protection skip."])[-1]
-            log("INFO", f"Skipped this BTC 5m round: {reason}")
+            level = "BLOCK" if not decision.get("eligible", False) or decision.get("tradeability") == "ineligible" else "THINK"
+            log(level, f"Skipped this BTC 5m round: {reason}")
         return
 
 
@@ -1893,7 +2090,7 @@ async def binance_ws_loop() -> None:
     while True:
         try:
             async with websockets.connect("wss://stream.binance.com:9443/ws/btcusdt@trade", ping_interval=20, ping_timeout=20) as ws:
-                log("INFO", "Binance BTCUSDT WebSocket connected.")
+                log("DATA", "Binance BTCUSDT WebSocket connected.")
                 async for raw in ws:
                     msg = json.loads(raw)
                     price = float(msg.get("p", 0) or 0)
@@ -1903,6 +2100,7 @@ async def binance_ws_loop() -> None:
                         if REFERENCE_MODE == "binance" and state.chainlink_status != "live":
                             state.current_price = price
                             state.reference_source = "Binance BTCUSDT WebSocket"
+                            update_reference_candle(price, int(msg.get("T") or msg.get("E") or now_ms()))
         except Exception as exc:
             log("WARN", f"Binance WebSocket reconnecting: {exc}")
             await asyncio.sleep(5)
@@ -1966,6 +2164,11 @@ async def logs():
     return list(reversed(state.logs[-100:]))
 
 
+@app.get("/api/brain/performance")
+async def brain_performance_endpoint():
+    return brain_performance()
+
+
 @app.get("/api/streak")
 async def streak():
     resolved = [t for t in state.history if t.status == "RESOLVED"]
@@ -2018,6 +2221,42 @@ async def backtests():
     with db() as con:
         rows = con.execute("SELECT * FROM backtest_runs ORDER BY timestamp DESC LIMIT 50").fetchall()
     return [{**dict(r), "notes": json.loads(r["notes"])} for r in rows]
+
+
+@app.get("/api/backtest/current-brain")
+async def current_brain_backtest():
+    rows = learning_rows(1000)
+    total = summarize_rows(rows)
+    last50 = summarize_rows(rows[-50:])
+    by_time = grouped_performance(rows, "time_bucket")
+    by_odds = grouped_performance(rows, "odds_bucket")
+    eligible_rows = [
+        row for row in rows
+        if (row.get("features") or {}).get("entry_price", 1) <= MAX_ENTRY_PRICE
+    ]
+    blocked_like = len(rows) - len(eligible_rows)
+    pnl_curve = []
+    running = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    for row in rows:
+        running += float(row.get("pnl") or 0)
+        peak = max(peak, running)
+        max_drawdown = min(max_drawdown, running - peak)
+        pnl_curve.append(running)
+    return {
+        "timestamp": now_ms(),
+        "sample": len(rows),
+        "current_brain": total,
+        "last50": last50,
+        "eligible_replay": summarize_rows(eligible_rows),
+        "blocked_over_70c": blocked_like,
+        "max_drawdown": max_drawdown,
+        "final_pnl": running,
+        "by_time_bucket": by_time,
+        "by_odds_bucket": by_odds,
+        "notes": "Replay uses stored paper outcomes and expanded feature memory; tick-perfect historical orderbook replay requires persisted snapshots.",
+    }
 
 
 @app.post("/api/control")

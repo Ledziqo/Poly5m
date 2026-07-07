@@ -7,6 +7,7 @@ import ControlPanel from './ControlPanel';
 import ResolutionTimer from './ResolutionTimer';
 import SystemLogs from './SystemLogs';
 import WinStreakBox from './WinStreakBox';
+import BrainPerformancePanel from './BrainPerformancePanel';
 import { Activity, RefreshCw, TrendingUp, Wallet, AlertCircle, CircleDollarSign } from 'lucide-react';
 import { formatET, formatLocalTime } from '../utils';
 import { toast } from 'sonner';
@@ -22,7 +23,7 @@ const emptyDashboard: DashboardPayload = {
     risk_mode: 'balanced',
     bot_state: 'stopped',
     taker_fee_rate: 0.018,
-    forced_cadence_every: 3,
+    forced_cadence_every: 2,
     skipped_windows: 0,
   },
   window: null,
@@ -223,6 +224,7 @@ export default function Dashboard() {
           </motion.div>
 
           <WinStreakBox />
+          <BrainPerformancePanel />
           <PredictionCard window={data.window} decision={data.decision} activeTrade={data.active_trade} />
         </div>
 
