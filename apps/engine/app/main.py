@@ -2256,7 +2256,6 @@ def compute_decision() -> dict:
 
     indicators = indicator_pack()
     vol = indicators["volatility"]
-    ext_signals = extended_signals(indicators, distance, time_left, max(state.up_ask - state.up_bid, state.down_ask - state.down_bid)) if "distance" in dir() else {}
     at = adaptive_thresholds()
 
     r1 = returns(60)
@@ -2275,6 +2274,8 @@ def compute_decision() -> dict:
     if memory["loss_streak"] >= 2:
         micro_momentum *= 0.72
     distance = (price - strike) / max(1, strike)
+    spread_val = max(state.up_ask - state.up_bid, state.down_ask - state.down_bid)
+    ext_signals = extended_signals(indicators, distance, time_left, spread_val)
     read = market_read(indicators, r1, r3, distance, time_left)
     seconds_to_expiry = max(20, time_left)
     projected_finish = distance + micro_momentum * vol * math.sqrt(seconds_to_expiry / 300)
