@@ -43,6 +43,7 @@ export interface Decision {
   direction: Direction;
   confidence: number;
   eligible: boolean;
+  entry_ready?: boolean;
   eligibility_reason: string;
   tradeability: string;
   conviction: number;

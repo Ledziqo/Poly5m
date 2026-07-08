@@ -2415,11 +2415,11 @@ def compute_decision() -> dict:
 
     def enrich(payload: dict) -> dict:
         selected_price = state.up_ask if payload.get("direction") == "UP" else state.down_ask if payload.get("direction") == "DOWN" else selected_entry_price
-        eligible_payload = bool(quality["eligible"] and payload.get("action") == "ENTER")
         payload.update({
-            "eligible": eligible_payload,
-            "tradeability": "eligible" if quality["eligible"] else "ineligible",
-            "eligibility_reason": quality["reason"] if quality["eligible"] else quality["reason"],
+            "eligible": bool(quality["eligible"]),
+            "entry_ready": bool(quality["eligible"] and payload.get("action") == "ENTER"),
+            "tradeability": "entry-ready" if quality["eligible"] and payload.get("action") == "ENTER" else "watching" if quality["eligible"] else "ineligible",
+            "eligibility_reason": quality["reason"],
             "conviction": conviction,
             "recommended_stake": stake_amount,
             "supporting_signals": vote_brain["supporting_signals"],
@@ -2453,13 +2453,13 @@ def compute_decision() -> dict:
     forced_edge_floor = FORCED_EDGE_FLOOR + loss_caution
     forced_confidence_floor = FORCED_MIN_CONFIDENCE + min(12, memory["loss_streak"] * 4)
     if best_edge < forced_edge_floor:
-        data_reasons.append(f"Cutoff warning: learned edge {best_edge * 100:+.2f}c is below the old forced-entry floor {forced_edge_floor * 100:+.1f}c, so stake is reduced instead of skipping.")
+        data_reasons.append(f"Cutoff warning: learned edge {best_edge * 100:+.2f}c is below the required-entry quality floor {forced_edge_floor * 100:+.1f}c, so the bot waits until the forced cutoff unless the cadence rule requires action.")
     if confidence < forced_confidence_floor:
         data_reasons.append(f"Cutoff warning: confidence {confidence}% is below the old forced-entry floor {forced_confidence_floor}%, so this is treated as a lower-conviction required eligible trade.")
     if conviction < conviction_floor:
-        data_reasons.append(f"Cutoff warning: conviction {conviction}/100 is below the normal {conviction_floor}/100 quality gate, so stake is reduced instead of skipping.")
+        data_reasons.append(f"Cutoff warning: conviction {conviction}/100 is below the normal {conviction_floor}/100 quality gate, so the bot waits for a cleaner entry or the forced cutoff.")
     if read["regime"] == "choppy" and memory["loss_streak"] >= 1:
-        data_reasons.append("Cutoff warning: market is choppy after a recent loss; the bot still trades the eligible round but with risk reduced.")
+        data_reasons.append("Cutoff warning: market is choppy after a recent loss; the bot keeps the fixed stake but demands a cleaner side before entry.")
     if selected_entry_price > MAX_ENTRY_PRICE:
         force_blockers.append(f"{best_side} ask is {selected_entry_price * 100:.1f}c, above the hard 70.0c max-entry rule")
     elif selected_entry_price < MIN_ENTRY_PRICE:
@@ -2469,7 +2469,7 @@ def compute_decision() -> dict:
     if spread > 0.055:
         force_blockers.append(f"spread is too wide at {spread * 100:.1f}c for a forced entry")
     if memory["loss_streak"] >= 2 and selected_learning["calibration_sample"] >= 5 and selected_learning["calibrated_rate"] < 0.48:
-        data_reasons.append(f"Cutoff warning: learning memory says this setup bucket is weak at {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} samples; stake is reduced rather than skipping.")
+        data_reasons.append(f"Cutoff warning: learning memory says this setup bucket is weak at {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} samples; the bot keeps fixed stake but waits for stronger confirmation.")
 
     if force_window_reached and not state.active_trade and force_blockers:
         return enrich({
