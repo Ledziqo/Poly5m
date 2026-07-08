@@ -2827,18 +2827,22 @@ async def maybe_trade() -> None:
 async def worker_loop() -> None:
     log("INFO", "Poly5m engine online. Waiting for bot start.")
     while True:
-        current = time.time()
-        if current - state.last_binance_rest_sync >= 2.0:
-            state.last_binance_rest_sync = current
-            await sync_binance()
-        if current - state.last_chainlink_sync >= 1.0:
-            state.last_chainlink_sync = current
-            await sync_chainlink_reference()
-        if current - state.last_polymarket_sync >= 1.0:
-            state.last_polymarket_sync = current
-            await sync_polymarket_hint()
-        await maybe_trade()
-        persist_tick_snapshot()
+        try:
+            current = time.time()
+            if current - state.last_binance_rest_sync >= 2.0:
+                state.last_binance_rest_sync = current
+                await sync_binance()
+            if current - state.last_chainlink_sync >= 1.0:
+                state.last_chainlink_sync = current
+                await sync_chainlink_reference()
+            if current - state.last_polymarket_sync >= 1.0:
+                state.last_polymarket_sync = current
+                await sync_polymarket_hint()
+            await maybe_trade()
+            persist_tick_snapshot()
+        except Exception as exc:
+            log("WARN", f"Worker loop recovered after sync error: {type(exc).__name__}: {exc}")
+            state.last_polymarket_sync = 0
         await asyncio.sleep(0.2)
 
 
@@ -2879,7 +2883,30 @@ async def health():
 
 @app.get("/api/status")
 async def status():
+    if (
+        not state.pm_event_slug
+        or not (state.up_token_id and state.down_token_id)
+        or not state.last_odds_update_ms
+        or now_ms() - state.last_odds_update_ms > 10_000
+    ):
+        try:
+            await sync_polymarket_hint()
+        except Exception as exc:
+            log("WARN", f"Status-triggered Polymarket sync failed: {type(exc).__name__}: {exc}")
     return dashboard_payload()
+
+
+@app.post("/api/sync-now")
+async def sync_now():
+    await sync_binance()
+    await sync_chainlink_reference()
+    await sync_polymarket_hint()
+    return {
+        "ok": True,
+        "window": window_payload(),
+        "tokens": {"up": bool(state.up_token_id), "down": bool(state.down_token_id)},
+        "last_odds_update_ms": state.last_odds_update_ms,
+    }
 
 
 @app.get("/api/stream")
