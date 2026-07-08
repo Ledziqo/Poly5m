@@ -160,8 +160,11 @@ export default function Dashboard() {
     };
   }, []);
 
-  const activeTrades = useMemo(() => history.filter((h) => h.status === 'OPEN'), [history]);
-  const closedTrades = useMemo(() => history.filter((h) => h.status !== 'OPEN' && h.status !== 'SKIPPED'), [history]);
+  const activeTrades = useMemo(() => {
+    if (data.active_trade?.status === 'OPEN') return [data.active_trade];
+    return history.filter((h) => h.status === 'OPEN');
+  }, [data.active_trade, history]);
+  const closedTrades = useMemo(() => history.filter((h) => h.status !== 'OPEN' && h.status !== 'SKIPPED' && h.id !== data.active_trade?.id), [history, data.active_trade?.id]);
   const headlines = data.decision?.reasons || [];
 
   if (loading) {

@@ -118,6 +118,8 @@ class Trade:
     forced_trade: bool = False
     reason: str = ""
     entry_features: dict = field(default_factory=dict)
+    last_mark_price: float | None = None
+    last_mark_update_ms: int = 0
 
 
 @dataclass
@@ -2724,13 +2726,29 @@ def dashboard_payload() -> dict:
 def trade_payload(trade: Trade) -> dict:
     payload = trade.__dict__.copy()
     if trade.status == "OPEN":
-        mark_price = state.up_bid if trade.direction == "UP" else state.down_bid
+        raw_mark = state.up_bid if trade.direction == "UP" else state.down_bid
+        current_time = now_ms()
+        market_fresh = (
+            bool(state.up_token_id and state.down_token_id)
+            and state.pm_window_start == int(trade.window_id)
+            and state.last_odds_update_ms > 0
+            and current_time - state.last_odds_update_ms <= 6_000
+        )
+        mark_valid = MIN_ENTRY_PRICE <= raw_mark <= 0.99
+        if market_fresh and mark_valid:
+            trade.last_mark_price = raw_mark
+            trade.last_mark_update_ms = state.last_odds_update_ms
+        mark_price = trade.last_mark_price if trade.last_mark_price is not None else trade.entry_price
         current_value = trade.shares_count * max(0.0, mark_price)
         payload["mark_price"] = mark_price
+        payload["mark_price_fresh"] = bool(market_fresh and mark_valid)
+        payload["mark_price_age_ms"] = max(0, current_time - trade.last_mark_update_ms) if trade.last_mark_update_ms else None
         payload["current_value"] = current_value
         payload["unrealized_pnl"] = current_value - trade.stake
     else:
         payload["mark_price"] = trade.exit_price
+        payload["mark_price_fresh"] = False
+        payload["mark_price_age_ms"] = None
         payload["current_value"] = trade.shares_count * trade.exit_price if trade.exit_price is not None else 0
         payload["unrealized_pnl"] = trade.pnl
     return payload
