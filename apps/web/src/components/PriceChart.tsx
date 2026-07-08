@@ -1,6 +1,6 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { formatET } from '../utils';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 
 interface Candle {
@@ -12,9 +12,99 @@ interface Candle {
   volume: number;
 }
 
+const IDLE_THRESHOLD_MS = 1500; // when to start micro-jitter
+const EASE_FACTOR = 0.12; // how fast displayPrice approaches real price each frame
+const JITTER_SCALE = 0.6; // tiny random walk scale in USD
+
 export default function PriceChart({ data, currentPrice, priceToBeat }: { data: Candle[], currentPrice: number | null, priceToBeat?: number | null }) {
   const [chartData, setChartData] = useState<any[]>([]);
+  const [displayPrice, setDisplayPrice] = useState<number | null>(null);
+  const [pulseKey, setPulseKey] = useState(0);
 
+  const realPriceRef = useRef<number | null>(null);
+  const displayPriceRef = useRef<number | null>(null);
+  const lastRealUpdateRef = useRef<number>(0);
+  const lastFrameRef = useRef<number>(0);
+  const rafRef = useRef<number | null>(null);
+  const jitterOffsetRef = useRef<number>(0);
+  const prevCurrentPriceRef = useRef<number | null>(null);
+  const baseDataRef = useRef<any[]>([]);
+
+  // Track real price changes for pulse effect
+  useEffect(() => {
+    if (currentPrice !== null && currentPrice !== undefined) {
+      const prev = prevCurrentPriceRef.current;
+      if (prev !== currentPrice) {
+        if (prev !== null) {
+          setPulseKey((k: number) => k + 1); // trigger glow pulse
+        }
+        prevCurrentPriceRef.current = currentPrice;
+        lastRealUpdateRef.current = Date.now();
+      }
+      realPriceRef.current = currentPrice;
+    }
+  }, [currentPrice]);
+
+  // Animation loop: ease displayPrice toward real price, add idle jitter
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      const real = realPriceRef.current;
+      const disp = displayPriceRef.current;
+      const timeSinceUpdate = now - lastRealUpdateRef.current;
+
+      if (real !== null && real !== undefined && real > 0) {
+        if (disp === null) {
+          // First frame — snap
+          displayPriceRef.current = real;
+          setDisplayPrice(real);
+        } else {
+          // Ease toward real price
+          let target = real;
+
+          // If idle (no real update for a while), add micro-jitter
+          if (timeSinceUpdate > IDLE_THRESHOLD_MS) {
+            // Random walk jitter that drifts around the real price
+            const maxJitter = JITTER_SCALE * (1 + Math.min(2, timeSinceUpdate / 3000));
+            jitterOffsetRef.current += (Math.random() - 0.5) * maxJitter * 0.3;
+            // Decay jitter back toward 0
+            jitterOffsetRef.current *= 0.92;
+            jitterOffsetRef.current = Math.max(-maxJitter, Math.min(maxJitter, jitterOffsetRef.current));
+            target = real + jitterOffsetRef.current;
+          } else {
+            // Reset jitter when real updates arrive
+            jitterOffsetRef.current *= 0.5;
+          }
+
+          const eased = disp + (target - disp) * EASE_FACTOR;
+          displayPriceRef.current = eased;
+          setDisplayPrice(eased);
+        }
+
+        // Update chart data last point with display price
+        setChartData((prev: any[]) => {
+          if (prev.length === 0) return prev;
+          const updated = [...prev];
+          const last = { ...updated[updated.length - 1] };
+          last.close = displayPriceRef.current!;
+          last.high = Math.max(last.high, displayPriceRef.current!);
+          last.low = Math.min(last.low, displayPriceRef.current!);
+          updated[updated.length - 1] = last;
+          return updated;
+        });
+      }
+
+      lastFrameRef.current = now;
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  // Rebuild chart data when candle data changes (real updates from stream)
   useEffect(() => {
     if (!data || data.length === 0) return;
 
@@ -25,26 +115,22 @@ export default function PriceChart({ data, currentPrice, priceToBeat }: { data: 
       isLive: false
     }));
 
-    // If we have a live price, append it dynamically to the last candle or as a new point
-    // For visual smoothness, we'll just rely on the reference line for the absolute latest price
-    // and let the candles update via the prop `data` (which comes from the 1m polling).
-    // However, to make the line "alive", we can append a temporary point.
-
-    if (currentPrice) {
+    // If we have a display price, update the last candle close to match
+    if (displayPriceRef.current) {
       const lastCandle = formatted[formatted.length - 1];
       if (lastCandle) {
-        // Update last candle close for the chart
         formatted[formatted.length - 1] = {
           ...lastCandle,
-          close: currentPrice,
-          high: Math.max(lastCandle.high, currentPrice),
-          low: Math.min(lastCandle.low, currentPrice)
+          close: displayPriceRef.current,
+          high: Math.max(lastCandle.high, displayPriceRef.current),
+          low: Math.min(lastCandle.low, displayPriceRef.current)
         };
       }
     }
 
+    baseDataRef.current = formatted;
     setChartData(formatted);
-  }, [data, currentPrice]);
+  }, [data]);
 
   if (!chartData || chartData.length === 0) return <div className="h-64 flex items-center justify-center text-slate-500">Loading Chart...</div>;
 
@@ -52,6 +138,7 @@ export default function PriceChart({ data, currentPrice, priceToBeat }: { data: 
   const minPrice = Math.min(...chartData.map(d => d.low));
   const maxPrice = Math.max(...chartData.map(d => d.high));
   const padding = (maxPrice - minPrice) * 0.1;
+  const shownPrice = displayPrice ?? currentPrice;
 
   return (
     <motion.div
@@ -66,10 +153,16 @@ export default function PriceChart({ data, currentPrice, priceToBeat }: { data: 
           <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
           BTC/USDT (1m)
         </h3>
-        {currentPrice && (
-          <div className="text-lg font-mono font-bold text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]">
-            ${currentPrice.toFixed(2)}
-          </div>
+        {shownPrice && (
+          <motion.div
+            key={pulseKey}
+            initial={pulseKey > 0 ? { scale: 1.15, textShadow: '0 0 20px rgba(192,132,252,0.8)' } : false}
+            animate={{ scale: 1, textShadow: '0 0 0px rgba(192,132,252,0)' }}
+            transition={{ duration: 0.6, ease: 'easeOut' }}
+            className="text-lg font-mono font-bold text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]"
+          >
+            ${shownPrice.toFixed(2)}
+          </motion.div>
         )}
       </div>
       <ResponsiveContainer width="100%" height="100%">
@@ -113,8 +206,8 @@ export default function PriceChart({ data, currentPrice, priceToBeat }: { data: 
           {priceToBeat && (
             <ReferenceLine y={priceToBeat} stroke="#f472b6" strokeDasharray="5 5" opacity={0.75} label={{ value: 'Price to beat', fill: '#f472b6', fontSize: 10 }} />
           )}
-          {currentPrice && (
-            <ReferenceLine y={currentPrice} stroke="#e9d5ff" strokeDasharray="3 3" opacity={0.4} />
+          {shownPrice && (
+            <ReferenceLine y={shownPrice} stroke="#e9d5ff" strokeDasharray="3 3" opacity={0.4} />
           )}
         </LineChart>
       </ResponsiveContainer>

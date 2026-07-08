@@ -169,6 +169,46 @@ class EngineState:
     brain_direction: str = "WAIT"
     brain_signal_age: int = 0
     brain_last_window_id: str = ""
+    # Adaptive brain state
+    adaptive_model: dict = field(default_factory=dict)
+    adaptive_last_train: int = 0
+    adaptive_sample_count: int = 0
+    adaptive_drift_score: float = 0.0
+    adaptive_drift_warning: str = ""
+    recent_predictions: list = field(default_factory=list)
+    # Entry timing state (peak-conviction tracking)
+    window_best_conviction: int = 0
+    window_best_edge: float = -999.0
+    window_best_direction: str = "WAIT"
+    window_best_time: float = 0.0
+    window_best_seen: bool = False
+    # Confirmation state (model + orderbook agreement duration)
+    confirmation_direction: str = "WAIT"
+    confirmation_seconds: float = 0.0
+    confirmation_last_ts: float = 0.0
+    # Forced-trade historical stats cache
+    forced_stats_cache: dict = field(default_factory=dict)
+    forced_stats_cache_time: float = 0.0
+    # Extended signal tracking (B6-B9)
+    prev_orderbook_imbalance: float = 0.0
+    prev_spread: float = 0.0
+    prev_liquidity: float = 0.0
+    prev_up_mid: float = 0.5
+    prev_down_mid: float = 0.5
+    prev_price: float = 0.0
+    beat_line_crossings: int = 0
+    last_crossing_time: float = 0.0
+    signal_history: list = field(default_factory=list)
+    # Weak setup blacklist (D16)
+    weak_setups: dict = field(default_factory=dict)
+    # Strong setup tracking (D17)
+    strong_setups: dict = field(default_factory=dict)
+    # Adaptive thresholds (D18)
+    adaptive_min_edge_adj: float = 0.0
+    adaptive_min_conf_adj: int = 0
+    adaptive_conviction_adj: int = 0
+    # Tick snapshot tracking (E19)
+    last_tick_snapshot_ms: int = 0
 
 
 state = EngineState()
@@ -281,6 +321,35 @@ def init_db() -> None:
           tags TEXT NOT NULL,
           features TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS feature_store (
+          id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          direction TEXT NOT NULL,
+          features TEXT NOT NULL,
+          outcome TEXT,
+          pnl REAL,
+          resolved INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS tick_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp INTEGER NOT NULL,
+          window_id TEXT NOT NULL,
+          price REAL NOT NULL,
+          up_bid REAL, up_ask REAL,
+          down_bid REAL, down_ask REAL,
+          liquidity REAL, spread REAL,
+          indicators TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE IF NOT EXISTS signal_contributions (
+          id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          direction TEXT NOT NULL,
+          outcome TEXT,
+          votes TEXT NOT NULL DEFAULT '{}',
+          conviction INTEGER NOT NULL DEFAULT 0,
+          entry_price REAL,
+          pnl REAL
+        );
         """)
         columns = {row["name"] for row in con.execute("PRAGMA table_info(trades)").fetchall()}
         if "entry_features" not in columns:
@@ -326,6 +395,16 @@ def load_persistent_state() -> None:
         ]
         state.active_trade = next((t for t in state.history if t.status == "OPEN"), None)
         state.logs = [dict(r) for r in con.execute("SELECT id, timestamp, level, message FROM logs ORDER BY id DESC LIMIT 100").fetchall()][::-1]
+    # Load weak/strong setup tracking
+    try:
+        with db() as con:
+            for row in con.execute("SELECT key, value FROM settings WHERE key IN ('weak_setups', 'strong_setups')"):
+                if row["key"] == "weak_setups":
+                    state.weak_setups = json.loads(row["value"])
+                elif row["key"] == "strong_setups":
+                    state.strong_setups = json.loads(row["value"])
+    except Exception:
+        pass
 
 
 def persist_trade(trade: Trade) -> None:
@@ -1100,6 +1179,88 @@ def indicator_pack() -> dict:
     }
 
 
+def extended_signals(indicators: dict, distance: float, time_left: float, spread: float) -> dict:
+    """B6-B9: Microstructure, price-action, and Polymarket-specific signals."""
+    # B6: Microstructure signals
+    orderbook_imbalance_delta = indicators["orderbook_imbalance"] - state.prev_orderbook_imbalance
+    up_mid = clob_midpoint(state.up_bid, state.up_ask) or state.up_price or 0.5
+    down_mid = clob_midpoint(state.down_bid, state.down_ask) or state.down_price or 0.5
+    book_pressure_ratio = 0.0
+    depth_total = state.best_depth_up + state.best_depth_down
+    if depth_total > 0:
+        book_pressure_ratio = (state.best_depth_up - state.best_depth_down) / depth_total
+    book_pressure_roc = book_pressure_ratio - state.prev_orderbook_imbalance
+
+    # B7: Price-action signals
+    strike = state.price_to_beat or state.current_price
+    beat_line_velocity = 0.0
+    if state.prev_price > 0 and strike > 0:
+        beat_line_velocity = (state.current_price - state.prev_price) / max(1, strike) * 1000
+    # Track crossings
+    if state.prev_price > 0 and strike > 0:
+        crossed = (state.prev_price <= strike <= state.current_price) or (state.prev_price >= strike >= state.current_price)
+        if crossed and time.time() - state.last_crossing_time > 2:
+            state.beat_line_crossings += 1
+            state.last_crossing_time = time.time()
+    # Z-score of recent returns
+    closes = [c["close"] for c in state.candles[-20:]]
+    z_score = 0.0
+    if len(closes) >= 10:
+        mean_c = sum(closes) / len(closes)
+        std_c = (sum((x - mean_c) ** 2 for x in closes) / len(closes)) ** 0.5
+        z_score = (state.current_price - mean_c) / max(1, std_c) if std_c > 0 else 0
+    # Range position (where is price in last 5m range)
+    range_position = 0.5
+    if len(state.candles) >= 5:
+        recent_high = max(c["high"] for c in state.candles[-5:])
+        recent_low = min(c["low"] for c in state.candles[-5:])
+        candle_range = max(1, recent_high - recent_low)
+        range_position = clamp((state.current_price - recent_low) / candle_range, 0, 1)
+
+    # B8: Adaptive momentum/mean-reversion blend
+    vol = indicators["volatility"]
+    blend_factor = 0.5  # 0 = pure momentum, 1 = pure mean reversion
+    if vol > 0.0028:
+        blend_factor = 0.7  # high vol -> lean toward mean reversion
+    elif vol < 0.0007:
+        blend_factor = 0.3  # low vol -> lean toward momentum
+    momentum_signal = indicators["momentum_15s"] * 1000
+    reversion_signal = -z_score * 0.5
+    blended_signal = momentum_signal * (1 - blend_factor) + reversion_signal * blend_factor
+
+    # B9: Polymarket-specific signals
+    up_mid_change = up_mid - state.prev_up_mid if state.prev_up_mid > 0 else 0
+    down_mid_change = down_mid - state.prev_down_mid if state.prev_down_mid > 0 else 0
+    odds_momentum = up_mid_change - down_mid_change  # positive = market shifting toward UP
+    spread_tightening = (state.prev_spread - spread) if state.prev_spread > 0 else 0
+    liquidity_surge = 0.0
+    if state.prev_liquidity > 0:
+        liquidity_surge = (state.liquidity - state.prev_liquidity) / max(1, state.prev_liquidity)
+
+    # Update prev state for next call
+    state.prev_orderbook_imbalance = indicators["orderbook_imbalance"]
+    state.prev_spread = spread
+    state.prev_liquidity = state.liquidity
+    state.prev_up_mid = up_mid
+    state.prev_down_mid = down_mid
+    state.prev_price = state.current_price
+
+    return {
+        "orderbook_imbalance_delta": orderbook_imbalance_delta,
+        "book_pressure_ratio": book_pressure_ratio,
+        "book_pressure_roc": book_pressure_roc,
+        "beat_line_velocity": beat_line_velocity,
+        "beat_line_crossings": state.beat_line_crossings,
+        "z_score": z_score,
+        "range_position": range_position,
+        "momentum_reversion_blend": blend_factor,
+        "blended_signal": blended_signal,
+        "odds_momentum": odds_momentum,
+        "spread_tightening": spread_tightening,
+        "liquidity_surge": liquidity_surge,
+    }
+
+
 def pattern_memory() -> dict:
     learned = learning_rows(80)
     last = learned[-18:]
@@ -1420,7 +1581,16 @@ def multi_vote_brain(best_side: str, fair_up: float, fair_down: float, learned_e
     risk_vote -= clamp((spread - 0.026) * 5.5, 0.0, 0.35)
     risk_vote -= 0.06 * min(5, memory["loss_streak"])
     risk_vote -= clamp((selected_entry_price - 0.70) * 0.9, 0.0, 0.22)
-    vote_score = trend_vote * 0.24 + reversal_vote * 0.13 + market_vote * 0.27 + memory_vote * 0.20 + risk_vote * 0.16
+    # C13: Regime-conditional vote weights
+    regime_weights = {
+        "aligned-trend": {"trend": 0.32, "reversal": 0.08, "market": 0.22, "memory": 0.20, "risk": 0.18},
+        "choppy": {"trend": 0.14, "reversal": 0.18, "market": 0.34, "memory": 0.18, "risk": 0.16},
+        "exhaustion-risk": {"trend": 0.16, "reversal": 0.30, "market": 0.24, "memory": 0.16, "risk": 0.14},
+        "late-window": {"trend": 0.20, "reversal": 0.12, "market": 0.30, "memory": 0.24, "risk": 0.14},
+        "mixed": {"trend": 0.24, "reversal": 0.13, "market": 0.27, "memory": 0.20, "risk": 0.16},
+    }
+    rw = regime_weights.get(read["regime"], regime_weights["mixed"])
+    vote_score = trend_vote * rw["trend"] + reversal_vote * rw["reversal"] + market_vote * rw["market"] + memory_vote * rw["memory"] + risk_vote * rw["risk"]
     conviction = int(clamp(50 + vote_score * 48 + max(0, edge) * 360 - max(0, -edge) * 460, 0, 100))
 
     support = []
@@ -1580,20 +1750,486 @@ def entry_snapshot(direction: str, confidence: int, forced: bool, read: dict, in
 def loss_autopsy(trade: Trade) -> str:
     features = trade.entry_features or {}
     if trade.actual_outcome == "WIN":
-        return "setup confirmed"
+        return win_autopsy(trade)
     if trade.forced_trade:
+        update_weak_setup("forced_trade", trade)
         return "forced entry carried weaker selectivity"
     if features.get("spread", 0) > 0.04:
+        update_weak_setup("wide_spread", trade)
         return "wide spread taxed the entry"
     if features.get("chop_penalty", 0) > 1.2:
+        update_weak_setup("choppy_regime", trade)
         return "choppy regime reversed the read"
     if features.get("entry_price", 0) > 0.72:
+        update_weak_setup("expensive_odds", trade)
         return "paid expensive favorite odds"
     if abs(features.get("distance", 0)) < 0.00015:
+        update_weak_setup("too_close_to_beat", trade)
         return "price stayed too close to the beat line"
     if features.get("calibration_sample", 0) >= 8 and features.get("calibrated_rate", 0.5) < 0.48:
+        update_weak_setup("weak_bucket", trade)
         return "historically weak setup bucket"
+    update_weak_setup("direction_lost", trade)
     return "direction lost after entry"
+
+
+def win_autopsy(trade: Trade) -> str:
+    """D17: Analyze wins to lean into proven strengths."""
+    features = trade.entry_features or {}
+    if features.get("regime") == "aligned-trend":
+        update_strong_setup("trend_win", trade)
+        return "setup confirmed: trend aligned"
+    if features.get("forced_trade"):
+        update_strong_setup("forced_win", trade)
+        return "setup confirmed: forced trade paid off"
+    if features.get("entry_price", 0) < 0.45:
+        update_strong_setup("cheap_odds_win", trade)
+        return "setup confirmed: cheap odds value paid off"
+    update_strong_setup("standard_win", trade)
+    return "setup confirmed"
+
+
+def update_weak_setup(tag: str, trade: Trade) -> None:
+    """D16: Track weak setups to raise entry bar for known-bad patterns."""
+    if tag not in state.weak_setups:
+        state.weak_setups[tag] = {"count": 0, "losses": 0}
+    state.weak_setups[tag]["count"] += 1
+    state.weak_setups[tag]["losses"] += 1
+    save_setting("weak_setups", state.weak_setups)
+
+
+def update_strong_setup(tag: str, trade: Trade) -> None:
+    """D17: Track strong setups to lean into proven patterns."""
+    if tag not in state.strong_setups:
+        state.strong_setups[tag] = {"count": 0, "wins": 0}
+    state.strong_setups[tag]["count"] += 1
+    state.strong_setups[tag]["wins"] += 1
+    save_setting("strong_setups", state.strong_setups)
+
+
+def weak_setup_penalty(tags: list) -> float:
+    """D16: Return extra edge penalty for setups matching weak patterns."""
+    penalty = 0.0
+    for tag in tags:
+        stats = state.weak_setups.get(tag)
+        if stats and stats["count"] >= 5:
+            loss_rate = stats["losses"] / stats["count"]
+            if loss_rate > 0.55:
+                penalty += clamp((loss_rate - 0.5) * 0.04, 0, 0.02)
+    return penalty
+
+
+def strong_setup_boost(tags: list) -> float:
+    """D17: Return edge boost for setups matching strong patterns."""
+    boost = 0.0
+    regime = None
+    for tag in tags:
+        if tag.startswith("regime:"):
+            regime = tag
+            break
+    for tag in tags:
+        stats = state.strong_setups.get(tag)
+        if stats and stats["count"] >= 5:
+            win_rate = stats["wins"] / stats["count"]
+            if win_rate > 0.58:
+                boost += clamp((win_rate - 0.5) * 0.03, 0, 0.02)
+    return boost
+
+
+def adaptive_thresholds() -> dict:
+    """D18: Auto-adjust min_edge/confidence/conviction floors based on recent performance."""
+    rows = learning_rows(100)
+    if len(rows) < 20:
+        return {"edge_adj": 0, "conf_adj": 0, "conviction_adj": 0}
+    recent = rows[-30:]
+    wins = sum(1 for r in recent if r["outcome"] == "WIN")
+    win_rate = wins / len(recent)
+    # Tighten after losses, relax after wins — bounded
+    if win_rate < 0.35:
+        state.adaptive_min_edge_adj = clamp((0.35 - win_rate) * 0.02, 0, 0.015)
+        state.adaptive_min_conf_adj = int(clamp((0.35 - win_rate) * 20, 0, 8))
+        state.adaptive_conviction_adj = int(clamp((0.35 - win_rate) * 15, 0, 6))
+    elif win_rate > 0.65:
+        state.adaptive_min_edge_adj = clamp((win_rate - 0.65) * -0.01, -0.01, 0)
+        state.adaptive_min_conf_adj = int(clamp((win_rate - 0.65) * -10, -5, 0))
+        state.adaptive_conviction_adj = int(clamp((win_rate - 0.65) * -8, -4, 0))
+    else:
+        state.adaptive_min_edge_adj *= 0.9
+        state.adaptive_min_conf_adj = int(state.adaptive_min_conf_adj * 0.9)
+        state.adaptive_conviction_adj = int(state.adaptive_conviction_adj * 0.9)
+    return {
+        "edge_adj": state.adaptive_min_edge_adj,
+        "conf_adj": state.adaptive_min_conf_adj,
+        "conviction_adj": state.adaptive_conviction_adj,
+    }
+
+
+def persist_tick_snapshot() -> None:
+    """E19: Persist 1s price/orderbook snapshots for future tick-perfect backtests."""
+    now = now_ms()
+    if now - state.last_tick_snapshot_ms < 1000:
+        return
+    state.last_tick_snapshot_ms = now
+    start, end = active_window_bounds()
+    window_id = str(start)
+    indicators = indicator_pack()
+    try:
+        with db() as con:
+            con.execute(
+                "INSERT INTO tick_snapshots(timestamp, window_id, price, up_bid, up_ask, down_bid, down_ask, liquidity, spread, indicators) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (now, window_id, state.current_price, state.up_bid, state.up_ask, state.down_bid, state.down_ask, state.liquidity, max(state.up_ask - state.up_bid, state.down_ask - state.down_bid), json.dumps(indicators, separators=(",", ":"))),
+            )
+    except Exception:
+        pass
+
+
+def persist_signal_contribution(trade: Trade) -> None:
+    """D15: Persist per-signal contribution data for each trade."""
+    features = trade.entry_features or {}
+    votes = features.get("votes") or {}
+    with db() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO signal_contributions(id, timestamp, direction, outcome, votes, conviction, entry_price, pnl) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (trade.id, trade.timestamp, trade.direction, trade.actual_outcome, json.dumps(votes, separators=(",", ":")), features.get("conviction", 0), trade.entry_price, trade.pnl),
+        )
+
+
+# ===== ADAPTIVE BRAIN: Online logistic regression with per-regime switching =====
+import numpy as np
+
+ADAPTIVE_MIN_SAMPLES = 30
+ADAPTIVE_RECENCY_HALFLIFE = 100
+ADAPTIVE_RETRAIN_EVERY = 5
+ADAPTIVE_FEATURE_NAMES = [
+    "distance", "momentum_5s", "momentum_15s", "momentum_30s", "momentum_60s",
+    "ema_slope", "vwap_distance", "rsi", "orderbook_imbalance", "volatility",
+    "acceleration", "macd_impulse", "bollinger_position", "wick_pressure",
+    "time_left", "spread", "liquidity", "entry_price", "direction_sign",
+]
+REGIMES = ["aligned-trend", "choppy", "exhaustion-risk", "late-window", "mixed"]
+
+# Entry timing constants
+PEAK_ENTRY_DEADLINE_SECONDS = 160  # enter by 2:40 if peak already seen
+CONFIRMATION_REQUIRED_SECONDS = 2.0  # model+orderbook must agree for N seconds
+CONFIRMATION_MAX_WAIT = 15.0  # don't wait longer than this for confirmation
+
+
+def _adaptive_features_from_row(row: dict) -> list[float] | None:
+    """Extract a normalized feature vector from a learning sample row."""
+    features = row.get("features") or {}
+    indicators = features.get("indicators") or {}
+    direction_sign = 1.0 if row.get("direction") == "UP" else -1.0
+    try:
+        return [
+            float(features.get("distance", 0)) * 1000,
+            float(indicators.get("momentum_5s", 0)) * 5000,
+            float(indicators.get("momentum_15s", 0)) * 3000,
+            float(indicators.get("momentum_30s", 0)) * 2000,
+            float(indicators.get("momentum_60s", 0)) * 1000,
+            float(indicators.get("ema_slope", 0)) * 500,
+            float(indicators.get("vwap_distance", 0)) * 300,
+            (float(indicators.get("rsi", 50)) - 50) / 25,
+            float(indicators.get("orderbook_imbalance", 0)) * 3,
+            float(indicators.get("volatility", 0.0008)) * 500,
+            float(indicators.get("acceleration", 0)) * 800,
+            float(indicators.get("macd_impulse", 0)) * 2000,
+            float(indicators.get("bollinger_position", 0)),
+            float(indicators.get("wick_pressure", 0)),
+            (float(features.get("time_left", 150)) - 150) / 150,
+            float(features.get("spread", 0)) * 50,
+            min(float(features.get("liquidity", 0)), 50000) / 50000,
+            (float(features.get("entry_price", 0.5)) - 0.5) * 2,
+            direction_sign,
+        ]
+    except Exception:
+        return None
+
+
+def _adaptive_features_from_live(indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float, direction: str) -> list[float]:
+    """Build a feature vector from the current live decision context."""
+    direction_sign = 1.0 if direction == "UP" else -1.0
+    return [
+        distance * 1000,
+        indicators.get("momentum_5s", 0) * 5000,
+        indicators.get("momentum_15s", 0) * 3000,
+        indicators.get("momentum_30s", 0) * 2000,
+        indicators.get("momentum_60s", 0) * 1000,
+        indicators.get("ema_slope", 0) * 500,
+        indicators.get("vwap_distance", 0) * 300,
+        (indicators.get("rsi", 50) - 50) / 25,
+        indicators.get("orderbook_imbalance", 0) * 3,
+        indicators.get("volatility", 0.0008) * 500,
+        indicators.get("acceleration", 0) * 800,
+        indicators.get("macd_impulse", 0) * 2000,
+        indicators.get("bollinger_position", 0),
+        indicators.get("wick_pressure", 0),
+        (time_left - 150) / 150,
+        spread * 50,
+        min(liquidity, 50000) / 50000,
+        (entry_price - 0.5) * 2,
+        direction_sign,
+    ]
+
+
+def _logistic_sigmoid_np(z):
+    return 1.0 / (1.0 + np.exp(-np.clip(z, -12, 12)))
+
+
+def train_adaptive_model(rows: list[dict] | None = None, regime: str | None = None) -> dict:
+    """Train a logistic regression on learning samples, optionally filtered by regime."""
+    if rows is None:
+        rows = learning_rows(1000)
+    if regime:
+        train_rows = [r for r in rows if (r.get("features") or {}).get("regime") == regime]
+    else:
+        train_rows = rows
+    if len(train_rows) < ADAPTIVE_MIN_SAMPLES:
+        return {}
+    X_list, y_list, weights = [], [], []
+    n = len(train_rows)
+    for i, row in enumerate(train_rows):
+        feats = _adaptive_features_from_row(row)
+        if feats is None:
+            continue
+        X_list.append(feats)
+        y_list.append(1.0 if row.get("outcome") == "WIN" else 0.0)
+        age = n - 1 - i
+        w = 0.5 ** (age / ADAPTIVE_RECENCY_HALFLIFE)
+        weights.append(w)
+    if len(X_list) < ADAPTIVE_MIN_SAMPLES:
+        return {}
+    X = np.array(X_list)
+    y = np.array(y_list)
+    w = np.array(weights)
+    n_features = X.shape[1]
+    lr = 0.01
+    l2 = 0.1
+    epochs = 500
+    coef = np.zeros(n_features)
+    intercept = 0.0
+    for _epoch in range(epochs):
+        z = X @ coef + intercept
+        p = _logistic_sigmoid_np(z)
+        error = p - y
+        grad_coef = (X * (error * w)[:, None]).mean(axis=0) + l2 * coef
+        grad_intercept = (error * w).mean()
+        coef -= lr * grad_coef
+        intercept -= lr * grad_intercept
+    # Platt calibration via grid search
+    z = X @ coef + intercept
+    p_raw = _logistic_sigmoid_np(z)
+    best_a, best_b = 0.0, 1.0
+    best_loss = float('inf')
+    for a in np.linspace(-2, 2, 21):
+        for b in np.linspace(0.1, 3.0, 15):
+            cal_p = np.clip(_logistic_sigmoid_np(a + b * (p_raw - 0.5)), 1e-6, 1 - 1e-6)
+            loss = -np.sum(w * (y * np.log(cal_p) + (1 - y) * np.log(1 - cal_p)))
+            if loss < best_loss:
+                best_loss = loss
+                best_a, best_b = float(a), float(b)
+    cal_p = np.clip(_logistic_sigmoid_np(best_a + best_b * (p_raw - 0.5)), 1e-6, 1 - 1e-6)
+    train_acc = float(np.mean((cal_p > 0.5) == (y > 0.5)))
+    train_loss = float(-np.sum(w * (y * np.log(cal_p) + (1 - y) * np.log(1 - cal_p))) / np.sum(w))
+    return {
+        "coef": coef.tolist(),
+        "intercept": float(intercept),
+        "cal_a": best_a,
+        "cal_b": best_b,
+        "sample_count": len(X_list),
+        "train_loss": train_loss,
+        "train_acc": train_acc,
+        "regime": regime or "all",
+    }
+
+
+def predict_adaptive_model(model: dict, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float, direction: str) -> float:
+    """Get a calibrated P(WIN) from the adaptive model."""
+    if not model or not model.get("coef"):
+        return 0.5
+    feats = _adaptive_features_from_live(indicators, distance, time_left, spread, liquidity, entry_price, direction)
+    x = np.array(feats)
+    z = x @ np.array(model["coef"]) + model.get("intercept", 0.0)
+    p_raw = float(_logistic_sigmoid_np(z))
+    cal_p = float(_logistic_sigmoid_np(model.get("cal_a", 0.0) + model.get("cal_b", 1.0) * (p_raw - 0.5)))
+    return clamp(cal_p, 0.03, 0.97)
+
+
+def maybe_retrain_adaptive() -> None:
+    """Check if enough new samples have arrived since last train and retrain if so."""
+    rows = learning_rows(1000)
+    total = len(rows)
+    if total < ADAPTIVE_MIN_SAMPLES:
+        return
+    if state.adaptive_last_train > 0 and total - state.adaptive_sample_count < ADAPTIVE_RETRAIN_EVERY:
+        return
+    models = {}
+    global_model = train_adaptive_model(rows)
+    if global_model:
+        models["all"] = global_model
+    for regime in REGIMES:
+        regime_model = train_adaptive_model(rows, regime)
+        if regime_model:
+            models[regime] = regime_model
+    state.adaptive_model = models
+    state.adaptive_last_train = now_ms()
+    state.adaptive_sample_count = total
+    save_setting("adaptive_model", models)
+    # Drift detection
+    check_drift(rows)
+    acc = global_model.get("train_acc", 0) if global_model else 0
+    log("LEARN", f"Adaptive brain retrained on {total} samples. Global train accuracy: {acc:.1%}. Drift score: {state.adaptive_drift_score:.3f}.")
+
+
+def load_adaptive_model() -> None:
+    """Load persisted adaptive model from settings on startup."""
+    try:
+        with db() as con:
+            row = con.execute("SELECT value FROM settings WHERE key = 'adaptive_model'").fetchone()
+            if row:
+                state.adaptive_model = json.loads(row["value"])
+                state.adaptive_sample_count = state.adaptive_model.get("all", {}).get("sample_count", 0)
+    except Exception:
+        pass
+
+
+def adaptive_predict(direction: str, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float, entry_price: float, regime: str) -> dict:
+    """Get adaptive prediction for a direction, using regime-specific model when available."""
+    regime_model = state.adaptive_model.get(regime)
+    global_model = state.adaptive_model.get("all")
+    model = None
+    model_type = "cold_start"
+    if regime_model and regime_model.get("sample_count", 0) >= ADAPTIVE_MIN_SAMPLES:
+        model = regime_model
+        model_type = "regime"
+    elif global_model and global_model.get("sample_count", 0) >= ADAPTIVE_MIN_SAMPLES:
+        model = global_model
+        model_type = "global"
+    if not model:
+        return {"p_win": 0.5, "source": "cold_start", "sample_count": 0, "train_acc": 0}
+    p_win = predict_adaptive_model(model, indicators, distance, time_left, spread, liquidity, entry_price, direction)
+    return {
+        "p_win": p_win,
+        "source": model_type,
+        "sample_count": model.get("sample_count", 0),
+        "train_acc": model.get("train_acc", 0),
+    }
+
+
+def check_drift(rows: list[dict] | None = None) -> None:
+    """Compare recent actual win rate vs model-expected win rate."""
+    if rows is None:
+        rows = learning_rows(200)
+    recent = rows[-50:]
+    if len(recent) < 20:
+        return
+    actual_wins = sum(1 for r in recent if r["outcome"] == "WIN")
+    actual_rate = actual_wins / len(recent)
+    predicted_probs = []
+    for row in recent:
+        feats = row.get("features") or {}
+        indicators = feats.get("indicators") or {}
+        regime = feats.get("regime", "mixed")
+        direction = row.get("direction", "UP")
+        result = adaptive_predict(
+            direction, indicators,
+            float(feats.get("distance", 0)),
+            float(feats.get("time_left", 150)),
+            float(feats.get("spread", 0)),
+            float(feats.get("liquidity", 0)),
+            float(feats.get("entry_price", 0.5)),
+            regime,
+        )
+        predicted_probs.append(result["p_win"])
+    expected_rate = sum(predicted_probs) / len(predicted_probs) if predicted_probs else 0.5
+    drift = abs(actual_rate - expected_rate)
+    state.adaptive_drift_score = drift
+    if drift > 0.15:
+        state.adaptive_drift_warning = f"Drift detected: actual {actual_rate:.0%} vs expected {expected_rate:.0%} over last {len(recent)} trades"
+        log("WARN", state.adaptive_drift_warning)
+    else:
+        state.adaptive_drift_warning = ""
+
+
+def reset_window_timing_state(window_id: str) -> None:
+    """Reset per-window peak-conviction and confirmation tracking."""
+    if state.brain_last_window_id != window_id:
+        state.window_best_conviction = 0
+        state.window_best_edge = -999.0
+        state.window_best_direction = "WAIT"
+        state.window_best_time = 0.0
+        state.window_best_seen = False
+        state.confirmation_direction = "WAIT"
+        state.confirmation_seconds = 0.0
+        state.confirmation_last_ts = 0.0
+
+
+def update_peak_tracking(best_side: str, conviction: int, best_edge: float, time_left: float) -> dict:
+    """Track the best conviction/edge seen this window for peak-conviction entry timing."""
+    if conviction > state.window_best_conviction or (conviction == state.window_best_conviction and best_edge > state.window_best_edge):
+        state.window_best_conviction = conviction
+        state.window_best_edge = best_edge
+        state.window_best_direction = best_side
+        state.window_best_time = time_left
+        state.window_best_seen = True
+    return {
+        "peak_conviction": state.window_best_conviction,
+        "peak_edge": state.window_best_edge,
+        "peak_direction": state.window_best_direction,
+        "peak_time": state.window_best_time,
+    }
+
+
+def update_confirmation(best_side: str, model_direction: str, orderbook_direction: str) -> dict:
+    """Track how long the model and orderbook have agreed on the same direction."""
+    now = time.time()
+    agreed = model_direction == best_side and orderbook_direction == best_side
+    if agreed:
+        if state.confirmation_direction == best_side:
+            if state.confirmation_last_ts > 0:
+                state.confirmation_seconds = min(CONFIRMATION_MAX_WAIT, state.confirmation_seconds + (now - state.confirmation_last_ts))
+            else:
+                state.confirmation_seconds = 0.1
+        else:
+            state.confirmation_direction = best_side
+            state.confirmation_seconds = 0.1
+        state.confirmation_last_ts = now
+    else:
+        state.confirmation_direction = "WAIT"
+        state.confirmation_seconds = 0.0
+        state.confirmation_last_ts = 0.0
+    confirmed = state.confirmation_seconds >= CONFIRMATION_REQUIRED_SECONDS
+    return {
+        "confirmed": confirmed,
+        "confirmation_seconds": state.confirmation_seconds,
+        "confirmation_direction": state.confirmation_direction,
+    }
+
+
+def forced_trade_selector(read: dict, indicators: dict, distance: float, time_left: float, spread: float, liquidity: float) -> dict:
+    """For forced trades, rank sides by historical forced-trade win rate by regime+odds+time bucket."""
+    now = time.time()
+    if now - state.forced_stats_cache_time > 5.0:
+        rows = learning_rows(1000)
+        forced_rows = [r for r in rows if r.get("forced")]
+        up_rows = [r for r in forced_rows if r.get("direction") == "UP"]
+        down_rows = [r for r in forced_rows if r.get("direction") == "DOWN"]
+        state.forced_stats_cache = {
+            "up_rate": sum(1 for r in up_rows if r["outcome"] == "WIN") / len(up_rows) if up_rows else 0.5,
+            "up_sample": len(up_rows),
+            "down_rate": sum(1 for r in down_rows if r["outcome"] == "WIN") / len(down_rows) if down_rows else 0.5,
+            "down_sample": len(down_rows),
+        }
+        state.forced_stats_cache_time = now
+    cache = state.forced_stats_cache
+    up_score = cache["up_rate"]
+    down_score = cache["down_rate"]
+    # If we have enough forced samples, prefer the historically better side
+    if cache["up_sample"] >= 5 and cache["down_sample"] >= 5:
+        if up_score > down_score + 0.05:
+            return {"recommended_side": "UP", "reason": f"forced history favors UP ({up_score:.0%} over {cache['up_sample']}) vs DOWN ({down_score:.0%} over {cache['down_sample']})", "up_rate": up_score, "down_rate": down_score}
+        elif down_score > up_score + 0.05:
+            return {"recommended_side": "DOWN", "reason": f"forced history favors DOWN ({down_score:.0%} over {cache['down_sample']}) vs UP ({up_score:.0%} over {cache['up_sample']})", "up_rate": up_score, "down_rate": down_score}
+    return {"recommended_side": "none", "reason": "no strong forced-trade historical bias", "up_rate": up_score, "down_rate": down_score}
 
 
 def compute_decision() -> dict:
@@ -1620,6 +2256,8 @@ def compute_decision() -> dict:
 
     indicators = indicator_pack()
     vol = indicators["volatility"]
+    ext_signals = extended_signals(indicators, distance, time_left, max(state.up_ask - state.up_bid, state.down_ask - state.down_bid)) if "distance" in dir() else {}
+    at = adaptive_thresholds()
 
     r1 = returns(60)
     r3 = returns(180)
@@ -1646,6 +2284,17 @@ def compute_decision() -> dict:
     fair_up = bayes["up"]
     fair_down = bayes["down"]
 
+    # Adaptive brain: get learned P(WIN) for each direction
+    adaptive_up = adaptive_predict("UP", indicators, distance, time_left, spread, state.liquidity, state.up_ask, read["regime"])
+    adaptive_down = adaptive_predict("DOWN", indicators, distance, time_left, spread, state.liquidity, state.down_ask, read["regime"])
+    if adaptive_up["sample_count"] >= 30:
+        adaptive_weight = 0.35 if adaptive_up["source"] == "regime" else 0.25
+        fair_up = clamp(fair_up * (1 - adaptive_weight) + adaptive_up["p_win"] * adaptive_weight, 0.03, 0.97)
+        fair_down = clamp(fair_down * (1 - adaptive_weight) + adaptive_down["p_win"] * adaptive_weight, 0.03, 0.97)
+        data_reasons_note = f"Adaptive brain blended in: {adaptive_up['source']} model with {adaptive_up['sample_count']} samples, P(UP)={adaptive_up['p_win']:.1%}, P(DOWN)={adaptive_down['p_win']:.1%}."
+    else:
+        data_reasons_note = f"Adaptive brain in cold start: {adaptive_up['sample_count']} samples collected, need 30 to activate."
+
     fee = state.settings.taker_fee_rate
     edge_up = fair_up - state.up_ask - fee
     edge_down = fair_down - state.down_ask - fee
@@ -1655,6 +2304,7 @@ def compute_decision() -> dict:
     cadence_forced = state.settings.skipped_windows >= 1
     force_now = time_left <= ENTRY_FORCE_SECONDS or (cadence_forced and elapsed >= ENTRY_MIN_ELAPSED_SECONDS)
     forced = force_now
+    reset_window_timing_state(window_id)
     brain = brain_filter(raw_side, raw_bias, edge_up, edge_down, micro_momentum, window_id)
     spread = max(state.up_ask - state.up_bid, state.down_ask - state.down_bid)
     up_learning = learning_adjustment("UP", brain["confidence"], forced, read, indicators, distance, time_left, spread, state.liquidity, state.up_ask)
@@ -1693,6 +2343,7 @@ def compute_decision() -> dict:
         best_edge = learned_edge_down
     vote_brain = multi_vote_brain(best_side, fair_up, fair_down, learned_edge_up, learned_edge_down, selected_learning, read, indicators, memory, bayes, distance, time_left, spread, state.liquidity, selected_entry_price)
     conviction = vote_brain["conviction"]
+    peak = update_peak_tracking(best_side, conviction, best_edge, time_left)
     stake_amount, stake_reasons = recommended_stake(conviction, memory, read, indicators, spread, similar, selected_entry_price)
 
     entry_window_open = elapsed >= ENTRY_MIN_ELAPSED_SECONDS and time_left > ENTRY_FORCE_SECONDS
@@ -1709,6 +2360,7 @@ def compute_decision() -> dict:
         f"Conviction score is {conviction}/100 from trend {vote_brain['votes']['trend']:+.2f}, reversal {vote_brain['votes']['reversal']:+.2f}, market {vote_brain['votes']['market']:+.2f}, memory {vote_brain['votes']['memory']:+.2f}, risk {vote_brain['votes']['risk']:+.2f}.",
         f"Recommended stake is ${stake_amount:.2f}: {', '.join(stake_reasons)}.",
         f"Entry discipline: preferred entry window is 4:40 to 2:20 remaining; only one skipped round is allowed before the next usable round becomes a required cadence trade, but the bot never buys shares above 70c.",
+        data_reasons_note,
     ]
     if cadence_forced:
         data_reasons.append("Cadence rule is active: the previous round was skipped, so this round must take the best available side after the opening observation window.")
@@ -1718,7 +2370,7 @@ def compute_decision() -> dict:
         data_reasons.append(f"Learning adaptation is active: recent losses add stricter edge/confidence floors before another entry is allowed.")
 
     loss_caution = clamp(memory["loss_streak"] * 0.008, 0.0, 0.035)
-    min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012) + read["extra_edge_required"] + loss_caution
+    min_edge = {"safe": 0.025, "balanced": 0.012, "aggressive": 0.002}.get(state.settings.risk_mode, 0.012) + read["extra_edge_required"] + loss_caution + state.adaptive_min_edge_adj
     confidence = brain["confidence"]
     if read["regime"] == "aligned-trend":
         confidence = min(92, confidence + 4)
@@ -1730,11 +2382,11 @@ def compute_decision() -> dict:
         confidence = int(clamp(confidence - (spread_penalty + thin_book_penalty + (up_overpay_penalty if best_side == "UP" else down_overpay_penalty)) * 90, 8, 94))
     if bayes["conflict"] > 0.28 and read["regime"] != "aligned-trend":
         confidence = max(8, confidence - 8)
-    min_confidence = {"safe": 82, "balanced": 76, "aggressive": 70}.get(state.settings.risk_mode, 76) + min(10, memory["loss_streak"] * 3)
+    min_confidence = {"safe": 82, "balanced": 76, "aggressive": 70}.get(state.settings.risk_mode, 76) + min(10, memory["loss_streak"] * 3) + state.adaptive_min_conf_adj
     stable_enough = brain["side"] in ("UP", "DOWN") and brain["signal_age"] >= 3
     learned_penalty = memory["loss_streak"] >= 2 and not forced
     early_edge_floor = min_edge + {"safe": 0.020, "balanced": 0.014, "aggressive": 0.008}.get(state.settings.risk_mode, 0.014)
-    conviction_floor = {"safe": 82, "balanced": 75, "aggressive": 68}.get(state.settings.risk_mode, 75) + min(10, memory["loss_streak"] * 3)
+    conviction_floor = {"safe": 82, "balanced": 75, "aggressive": 68}.get(state.settings.risk_mode, 75) + min(10, memory["loss_streak"] * 3) + state.adaptive_conviction_adj
 
     def enrich(payload: dict) -> dict:
         selected_price = state.up_ask if payload.get("direction") == "UP" else state.down_ask if payload.get("direction") == "DOWN" else selected_entry_price
@@ -2068,10 +2720,12 @@ def settle_active_trade(reason: str = "window rollover") -> None:
         state.settings.balance += payout
         persist_trade(state.active_trade)
         persist_learning_sample(state.active_trade)
+        persist_signal_contribution(state.active_trade)
         save_setting("balance", state.settings.balance)
         log("TRADE", f"Resolved {state.active_trade.direction}: {'WIN' if won else 'LOSS'} for {state.active_trade.pnl:+.2f} ({reason}). Autopsy: {loss_autopsy(state.active_trade)}.")
         log("LEARN", f"Stored learning sample for {state.active_trade.direction} {state.active_trade.actual_outcome}: time bucket {(state.active_trade.entry_features or {}).get('time_bucket', 'unknown')}, odds bucket {(state.active_trade.entry_features or {}).get('odds_bucket', 'unknown')}, PnL {state.active_trade.pnl:+.2f}.")
         state.active_trade = None
+        maybe_retrain_adaptive()
 
 
 async def maybe_trade() -> None:
@@ -2159,6 +2813,7 @@ async def worker_loop() -> None:
             state.last_polymarket_sync = current
             await sync_polymarket_hint()
         await maybe_trade()
+        persist_tick_snapshot()
         await asyncio.sleep(0.2)
 
 
@@ -2185,6 +2840,8 @@ async def binance_ws_loop() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     load_persistent_state()
+    load_adaptive_model()
+    maybe_retrain_adaptive()
     asyncio.create_task(worker_loop())
     asyncio.create_task(binance_ws_loop())
     asyncio.create_task(polymarket_rtds_loop())
@@ -2297,6 +2954,56 @@ async def backtests():
     with db() as con:
         rows = con.execute("SELECT * FROM backtest_runs ORDER BY timestamp DESC LIMIT 50").fetchall()
     return [{**dict(r), "notes": json.loads(r["notes"])} for r in rows]
+
+
+@app.get("/api/backtest/walkforward")
+async def walkforward_backtest():
+    """D14: Walk-forward out-of-sample backtest — train on first 70%, test on last 30%."""
+    rows = learning_rows(1000)
+    total = len(rows)
+    if total < 40:
+        return {"sample": total, "message": "Need at least 40 samples for walk-forward", "oos_win_rate": 0, "is_win_rate": 0}
+    split_idx = int(total * 0.7)
+    train_rows = rows[:split_idx]
+    test_rows = rows[split_idx:]
+    # Train on train set
+    model = train_adaptive_model(train_rows)
+    if not model:
+        return {"sample": total, "message": "Not enough training samples", "oos_win_rate": 0, "is_win_rate": 0}
+    # Test on test set (out-of-sample)
+    oos_correct = 0
+    oos_total = 0
+    oos_pnl = 0.0
+    for row in test_rows:
+        feats = row.get("features") or {}
+        indicators = feats.get("indicators") or {}
+        p_win = predict_adaptive_model(model, indicators, float(feats.get("distance", 0)), float(feats.get("time_left", 150)), float(feats.get("spread", 0)), float(feats.get("liquidity", 0)), float(feats.get("entry_price", 0.5)), row.get("direction", "UP"))
+        predicted_win = p_win > 0.5
+        actual_win = row.get("outcome") == "WIN"
+        if predicted_win == actual_win:
+            oos_correct += 1
+        oos_total += 1
+        oos_pnl += float(row.get("pnl") or 0)
+    # In-sample accuracy for comparison
+    is_correct = 0
+    is_total = 0
+    for row in train_rows:
+        feats = row.get("features") or {}
+        indicators = feats.get("indicators") or {}
+        p_win = predict_adaptive_model(model, indicators, float(feats.get("distance", 0)), float(feats.get("time_left", 150)), float(feats.get("spread", 0)), float(feats.get("liquidity", 0)), float(feats.get("entry_price", 0.5)), row.get("direction", "UP"))
+        if (p_win > 0.5) == (row.get("outcome") == "WIN"):
+            is_correct += 1
+        is_total += 1
+    return {
+        "sample": total,
+        "train_samples": len(train_rows),
+        "test_samples": len(test_rows),
+        "is_win_rate": is_correct / is_total if is_total else 0,
+        "oos_win_rate": oos_correct / oos_total if oos_total else 0,
+        "oos_pnl": oos_pnl,
+        "model_train_acc": model.get("train_acc", 0),
+        "message": f"OOS accuracy: {oos_correct}/{oos_total} ({oos_correct / oos_total * 100:.1f}%) vs IS: {is_correct}/{is_total} ({is_correct / is_total * 100:.1f}%)" if oos_total else "No test samples",
+    }
 
 
 @app.get("/api/backtest/current-brain")
