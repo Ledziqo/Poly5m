@@ -22,6 +22,7 @@ DB_PATH = os.getenv("POLY5M_DB", "/data/poly5m.db")
 REFERENCE_MODE = os.getenv("REFERENCE_MODE", "binance").lower()
 ENTRY_MIN_ELAPSED_SECONDS = 20
 ENTRY_FORCE_SECONDS = 140
+ENTRY_DECISION_SECONDS = 155
 MIN_ENTRY_PRICE = 0.05
 MAX_ENTRY_PRICE = 0.70
 PREFERRED_EDGE_FLOOR = -0.006
@@ -2355,7 +2356,30 @@ def compute_decision() -> dict:
     learned_edge_up = edge_up + up_learning["bias"] - spread_penalty - thin_book_penalty - up_overpay_penalty
     learned_edge_down = edge_down + down_learning["bias"] - spread_penalty - thin_book_penalty - down_overpay_penalty
     learned_side = "UP" if learned_edge_up >= learned_edge_down else "DOWN"
-    best_side = brain["side"] if brain["side"] in ("UP", "DOWN") else learned_side
+    brain_up_bonus = 0.018 if brain["side"] == "UP" else -0.012 if brain["side"] == "DOWN" else 0.0
+    brain_down_bonus = 0.018 if brain["side"] == "DOWN" else -0.012 if brain["side"] == "UP" else 0.0
+    loss_guard = min(0.055, memory["loss_streak"] * 0.011)
+    up_score = (
+        learned_edge_up
+        + clamp((adaptive_up["p_win"] - 0.5) * 0.16, -0.045, 0.045)
+        + clamp((up_learning["calibrated_rate"] - 0.5) * min(1.0, up_learning["calibration_sample"] / 18) * 0.10, -0.035, 0.035)
+        + brain_up_bonus
+        + clamp(indicators["orderbook_imbalance"] * 0.018, -0.018, 0.018)
+        - loss_guard * (0.65 if learned_edge_up < learned_edge_down else 0.35)
+    )
+    down_score = (
+        learned_edge_down
+        + clamp((adaptive_down["p_win"] - 0.5) * 0.16, -0.045, 0.045)
+        + clamp((down_learning["calibrated_rate"] - 0.5) * min(1.0, down_learning["calibration_sample"] / 18) * 0.10, -0.035, 0.035)
+        + brain_down_bonus
+        - clamp(indicators["orderbook_imbalance"] * 0.018, -0.018, 0.018)
+        - loss_guard * (0.65 if learned_edge_down < learned_edge_up else 0.35)
+    )
+    if state.up_ask > 0.66:
+        up_score -= (state.up_ask - 0.66) * 0.55
+    if state.down_ask > 0.66:
+        down_score -= (state.down_ask - 0.66) * 0.55
+    best_side = "UP" if up_score >= down_score else "DOWN"
     if best_side == "UP" and learned_edge_down > learned_edge_up + 0.035:
         best_side = "DOWN"
     elif best_side == "DOWN" and learned_edge_up > learned_edge_down + 0.035:
@@ -2387,6 +2411,7 @@ def compute_decision() -> dict:
     stake_reasons = ["fixed stake from Settings; no multiplier or adaptive sizing is applied"]
 
     entry_window_open = elapsed >= ENTRY_MIN_ELAPSED_SECONDS and time_left > ENTRY_FORCE_SECONDS
+    required_decision_now = time_left <= ENTRY_DECISION_SECONDS and time_left > ENTRY_FORCE_SECONDS
     before_entry_window = elapsed < ENTRY_MIN_ELAPSED_SECONDS
     force_window_reached = time_left <= ENTRY_FORCE_SECONDS
     data_reasons = [
@@ -2396,6 +2421,7 @@ def compute_decision() -> dict:
         f"Memory check: last {memory['sample']} resolved trades show UP {memory['up_rate'] * 100:.0f}% and DOWN {memory['down_rate'] * 100:.0f}% win rate; active loss streak is {memory['loss_streak']}.",
         f"Bayesian probability blends model {model_fair_up * 100:.0f}% UP with market prior {bayes['market_up'] * 100:.0f}% UP; conflict {bayes['conflict'] * 100:.0f}%, distance vote {bayes['distance_vote'] * 100:.0f}%, trend vote {bayes['trend_vote'] * 100:.0f}%.",
         f"Fee-adjusted raw edge is UP {edge_up * 100:+.2f}c and DOWN {edge_down * 100:+.2f}c; learned edge is UP {learned_edge_up * 100:+.2f}c and DOWN {learned_edge_down * 100:+.2f}c after spread/liquidity/overpay penalties.",
+        f"Side-selection score is UP {up_score * 100:+.2f} vs DOWN {down_score * 100:+.2f}; loss guard is {loss_guard * 100:.1f}c and expensive asks above 66c are penalized.",
         f"Calibration read for {best_side}: historical bucket rate {selected_learning['calibrated_rate'] * 100:.0f}% over {selected_learning['calibration_sample']} matching confidence samples; similar-pattern memory says {similar['description']}.",
         f"Conviction score is {conviction}/100 from trend {vote_brain['votes']['trend']:+.2f}, reversal {vote_brain['votes']['reversal']:+.2f}, market {vote_brain['votes']['market']:+.2f}, memory {vote_brain['votes']['memory']:+.2f}, risk {vote_brain['votes']['risk']:+.2f}.",
         f"Recommended stake is ${stake_amount:.2f}: {', '.join(stake_reasons)}.",
@@ -2491,10 +2517,32 @@ def compute_decision() -> dict:
             "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
         })
 
-    if not state.active_trade and (entry_window_open or force_window_reached):
+    strong_early_entry = (
+        entry_window_open
+        and confidence >= max(62, forced_confidence_floor - 8)
+        and conviction >= max(58, conviction_floor - 14)
+        and best_edge >= -0.004
+        and stable_enough
+        and spread <= 0.045
+    )
+    if not state.active_trade and (required_decision_now or force_window_reached or strong_early_entry):
+        entry_reason = (
+            "Strong early entry"
+            if strong_early_entry and not required_decision_now and not force_window_reached
+            else "Required decision-window entry"
+        )
         return enrich({
             **base_decision(best_side, fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "ENTER"),
-            "reasons": data_reasons + [f"Every-window rule selected {best_side}. This is a normal bot trade using live Polymarket odds, fixed stake, fee-adjusted pricing, and the ask is at or below 70c."],
+            "reasons": data_reasons + [f"{entry_reason} selected {best_side}. The bot still trades every valid round, but now waits for either a strong early setup or the final decision window so it has more live evidence before entering."],
+            "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
+        })
+
+    if not state.active_trade and entry_window_open:
+        return enrich({
+            **base_decision("WAIT", fair_up, fair_down, edge_up, edge_down, best_edge, fee, False, confidence, "WAIT"),
+            "confidence": confidence,
+            "reasons": data_reasons + [f"Waiting inside this valid round because the early setup is not strong enough yet. It will still enter before cutoff unless the market becomes ineligible; current target side is {best_side}."],
+            "no_trade_reason": "Gathering more evidence before required entry.",
             "entry_features": entry_snapshot(best_side, confidence, False, read, indicators, distance, time_left, spread, state.liquidity, selected_entry_price, fair_up, fair_down, edge_up, edge_down, brain, selected_learning, conviction, stake_amount, similar, vote_brain["votes"]),
         })
 
