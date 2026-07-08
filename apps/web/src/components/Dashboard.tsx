@@ -322,7 +322,6 @@ function TradeRow({ trade, active = false }: { trade: Trade; active?: boolean })
           <span className="text-slate-600">/</span>
           <span className="text-slate-500">{formatLocalTime(trade.timestamp)}</span>
           <span className={`font-bold ${trade.direction === 'UP' ? 'text-blue-400' : 'text-pink-500'}`}>{trade.direction}</span>
-          {trade.forced_trade && <span className="text-[10px] bg-orange-500/10 text-orange-300 px-1.5 py-0.5 rounded border border-orange-500/20">FORCED</span>}
         </div>
         <div className="text-slate-400 text-[10px] flex flex-wrap items-center gap-2">
           {entryBtc !== null && <span>Entry ${entryBtc.toFixed(2)}</span>}

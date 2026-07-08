@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BrainCircuit, ExternalLink, ShieldAlert, Timer, Zap } from 'lucide-react';
+import { ArrowDown, ArrowUp, BrainCircuit, ExternalLink, Timer, Zap } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion } from 'motion/react';
 import { BtcWindow, Decision, Trade } from '../api';
@@ -72,12 +72,6 @@ export default function PredictionCard({
               <Zap className="w-3 h-3" />
               Conv {decision.conviction ?? 0}%
             </div>
-            {decision.forced_trade && (
-              <div className="flex items-center gap-1 text-[10px] bg-orange-500/10 text-orange-400 px-2 py-0.5 rounded border border-orange-500/20" title="Forced cadence trade">
-                <ShieldAlert className="w-3 h-3" />
-                FORCED
-              </div>
-            )}
           </div>
         </div>
       </div>
