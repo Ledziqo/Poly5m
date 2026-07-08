@@ -2310,8 +2310,8 @@ def compute_decision() -> dict:
     fair_down = bayes["down"]
 
     # Adaptive brain: get learned P(WIN) for each direction
-    adaptive_up = adaptive_predict("UP", indicators, distance, time_left, spread, state.liquidity, state.up_ask, read["regime"])
-    adaptive_down = adaptive_predict("DOWN", indicators, distance, time_left, spread, state.liquidity, state.down_ask, read["regime"])
+    adaptive_up = adaptive_predict("UP", indicators, distance, time_left, spread_val, state.liquidity, state.up_ask, read["regime"])
+    adaptive_down = adaptive_predict("DOWN", indicators, distance, time_left, spread_val, state.liquidity, state.down_ask, read["regime"])
     if adaptive_up["sample_count"] >= 30:
         adaptive_weight = 0.35 if adaptive_up["source"] == "regime" else 0.25
         fair_up = clamp(fair_up * (1 - adaptive_weight) + adaptive_up["p_win"] * adaptive_weight, 0.03, 0.97)
