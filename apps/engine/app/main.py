@@ -226,6 +226,18 @@ def polymarket_now_ms() -> int:
     return now_ms() + state.polymarket_clock_offset_ms
 
 
+def apply_polymarket_clock_timestamp(timestamp_value) -> None:
+    try:
+        remote_ts = int(float(timestamp_value))
+    except Exception:
+        return
+    if remote_ts < 10_000_000_000:
+        remote_ts *= 1000
+    offset = remote_ts - now_ms()
+    if abs(offset) <= 30_000:
+        state.polymarket_clock_offset_ms = offset
+
+
 class ControlBody(BaseModel):
     action: Literal["start", "stop", "reset", "emergency_stop"]
 
@@ -702,7 +714,7 @@ async def polymarket_rtds_loop() -> None:
                     if not isinstance(payload, dict):
                         continue
                     if msg.get("timestamp"):
-                        state.polymarket_clock_offset_ms = int(msg["timestamp"]) - now_ms()
+                        apply_polymarket_clock_timestamp(msg["timestamp"])
                     if isinstance(payload.get("data"), list):
                         apply_polymarket_chainlink_snapshot(payload["data"])
                         continue
@@ -723,12 +735,23 @@ async def polymarket_rtds_loop() -> None:
 
 async def sync_polymarket_hint() -> None:
     try:
-        start, _ = current_window_bounds(polymarket_now_ms() if state.chainlink_status == "live" else now_ms())
+        primary_now = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
+        start, _ = current_window_bounds(primary_now)
+        local_start, _ = current_window_bounds(now_ms())
         slug = f"btc-updown-5m-{start // 1000}"
         event = None
-        try:
-            event = await fetch_json(f"https://gamma-api.polymarket.com/events/slug/{slug}", 8.0)
-        except Exception:
+        tried_slugs = []
+        for candidate_start in dict.fromkeys([start, local_start]).keys():
+            candidate_slug = f"btc-updown-5m-{candidate_start // 1000}"
+            tried_slugs.append(candidate_slug)
+            try:
+                event = await fetch_json(f"https://gamma-api.polymarket.com/events/slug/{candidate_slug}", 8.0)
+                if event and not event.get("closed"):
+                    slug = candidate_slug
+                    break
+            except Exception:
+                event = None
+        if not event:
             events = await fetch_json("https://gamma-api.polymarket.com/events?active=true&closed=false&limit=500&order=end_date&ascending=true", 10.0)
             now = polymarket_now_ms() if state.chainlink_status == "live" else now_ms()
 
@@ -764,6 +787,7 @@ async def sync_polymarket_hint() -> None:
             event = min(candidates, key=event_distance, default=None)
         market = (event.get("markets") or [None])[0] if event else None
         if not market:
+            log("WARN", f"Active BTC 5m Gamma market not found yet; tried {', '.join(tried_slugs)}.")
             return
         previous_slug = state.pm_event_slug
         state.pm_event_slug = str(event.get("slug") or slug)
